@@ -49,3 +49,16 @@ Legend: [ ] NOT STARTED | [~] IN PROGRESS | [x] DONE
 - [x] F.5 Sound & Vibration auto-saves; Save button removed from all three sub-tabs. Verified: edited a field, value persisted with no save action.
 - [x] UI.2 Takeover restyle — background #202124, Open Calendar button lowered (all content shifted down), snooze/Specify Time/Date & Time buttons 1.5× taller with 2× borders in #F1F3F4 / #5F6368 / #E8F5E9.
 - Emulator note: tested at **America/New_York**, not UTC. The default UTC emulator cannot reproduce B.3 at all — that is why the first round missed it.
+
+## Feedback round 3 — DONE, build clean (0 errors, 0 warnings), UI verified on emulator
+- [x] B.5 (round 2 follow-up) opened Calendar but not the event — cause: Google Calendar does **not** put `eventId` in its notification extras (always -1), so the event-URI branch never ran. Now the event is looked up in the calendar provider (`Instances`, ±12h around the event time, matched on title, closest instance wins) and opened with `EXTRA_EVENT_BEGIN_TIME`. **Needs a real synced calendar to confirm** — the emulator has no events.
+- [x] F.6 Numeric keypad on Specify Time (Hours/Minutes) and the vibration pattern field. Pattern uses the *phone* keypad rather than the pure-number one, because the number keypad has no comma key and the pattern needs commas.
+- [x] F.7 "Pattern Repetitions" (default 4). A waveform plays once, so N repetitions concatenates the pattern N times (leading delay dropped on repeats). Old saved profiles migrate to 4 via a nullable JSON field rather than silently becoming 0.
+- [x] F.8 Snooze Buttons auto-save; Save buttons removed.
+- [x] UI.3 Takeover: Time & Date now #5F6368, Specify Time and Time & Date at the old snooze font size, snooze presets 1.5x that, and Open Calendar Event moved below Dismiss in #FF8C8A with "(DISMISSED ALARM)".
+- [x] UI.4 Snoozed Alarms moved into Home (heading, list, Manage; "No Snoozed Alarms" when empty), above Force Stop → Test Alarm → Permissions. Tabs are now Home / Snooze Buttons / Sound & Vibration. Added a Gmail-style scrollbar that appears only when the content overflows.
+- [x] UI.5 Fire Test Alarm Now matches the lock-screen test button.
+- [x] UI.6 Each Sound & Vibration sub-tab keeps its scroll position (scroll state hoisted per mode).
+- [x] UI.7 First field renamed "Trigger Auto-Snooze after (seconds) — 0 to disable"; the two radios replaced by a single "Auto-Snooze ON" switch directly under the section heading.
+- [x] UI.8 Snooze Buttons laid out 1 | 2 over 3 | 4, matching the takeover screen.
+- [x] UI.9 App title bar "CALENDAR EVENT SNOOZE" in the Force Stop colour with black text, plus grey half-size "(IFYKYK)".
