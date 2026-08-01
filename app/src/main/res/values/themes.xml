@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.CalendarEventSnooze"
+           parent="Theme.MaterialComponents.DayNight.NoActionBar" />
+    <style name="Theme.CalendarEventSnooze.Alarm"
+           parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">#1A1A2E</item>
+        <!--
+          NOTE: android:windowShowWhenLocked / android:windowTurnScreenOn were
+          removed here because they fail resource linking under this AGP/AAPT2
+          combination ("attribute not found"). The behaviour is preserved via the
+          manifest (android:showOnLockScreen / android:turnScreenOn on the
+          activity) and programmatically in AlarmActivity.onCreate() via
+          setShowWhenLocked(true) / setTurnScreenOn(true).
+        -->
+    </style>
+</resources>

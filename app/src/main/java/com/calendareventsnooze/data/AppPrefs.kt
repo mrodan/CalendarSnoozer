@@ -1,0 +1,226 @@
+package com.calendareventsnooze.data
+
+import android.content.Context
+import android.content.SharedPreferences
+import com.calendareventsnooze.model.AutoDismissAction
+import com.calendareventsnooze.model.RingerMode
+import com.calendareventsnooze.model.SnoozePreset
+import com.calendareventsnooze.model.SnoozedAlarmRecord
+import com.calendareventsnooze.model.SoundProfile
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+
+object AppPrefs {
+
+    private const val PREFS_NAME = "ces_prefs"
+    private const val KEY_SNOOZE_PRESETS = "snooze_presets"
+    private const val KEY_SNOOZED_ALARMS = "snoozed_alarms"
+    private const val KEY_CALENDAR_PACKAGES = "calendar_packages"
+    private const val KEY_AUTO_SNOOZE_PREFIX = "auto_snooze_count_"
+    private const val KEY_SOUND_PROFILE_PREFIX = "sound_profile_"
+
+    private val gson = Gson()
+
+    private fun prefs(ctx: Context): SharedPreferences =
+        ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    // ---------------------------------------------------------------------
+    // Snooze Presets
+    // ---------------------------------------------------------------------
+
+    private val defaultPresets = listOf(
+        SnoozePreset("10 min", 10),
+        SnoozePreset("30 min", 30),
+        SnoozePreset("1 hour", 60),
+        SnoozePreset("1 day", 1440)
+    )
+
+    fun getSnoozePresets(ctx: Context): List<SnoozePreset> {
+        val json = prefs(ctx).getString(KEY_SNOOZE_PRESETS, null) ?: return defaultPresets
+        return try {
+            val type = object : TypeToken<List<SnoozePreset>>() {}.type
+            gson.fromJson<List<SnoozePreset>>(json, type) ?: defaultPresets
+        } catch (e: Exception) {
+            defaultPresets
+        }
+    }
+
+    fun saveSnoozePresets(ctx: Context, presets: List<SnoozePreset>) {
+        prefs(ctx).edit().putString(KEY_SNOOZE_PRESETS, gson.toJson(presets)).apply()
+    }
+
+    // ---------------------------------------------------------------------
+    // Sound Profiles
+    // ---------------------------------------------------------------------
+
+    // JSON-safe mirror of SoundProfile — LongArray does not round-trip with Gson,
+    // so vibrationPattern is stored as List<Long>.
+    private data class SoundProfileJson(
+        val ringerMode: RingerMode,
+        val soundEnabled: Boolean,
+        val soundUri: String?,
+        val vibrationEnabled: Boolean,
+        val vibrationPattern: List<Long>,
+        val vibrationRepeat: Int,
+        val soundStartsFirst: Boolean,
+        val secondStartDelaySeconds: Int,
+        val autoDismissSeconds: Int,
+        val autoDismissAction: AutoDismissAction,
+        val autoDismissSnoozeMinutes: Int,
+        val autoDismissMaxRetries: Int
+    )
+
+    private fun SoundProfile.toJson() = SoundProfileJson(
+        ringerMode, soundEnabled, soundUri, vibrationEnabled,
+        vibrationPattern.toList(), vibrationRepeat, soundStartsFirst,
+        secondStartDelaySeconds, autoDismissSeconds, autoDismissAction,
+        autoDismissSnoozeMinutes, autoDismissMaxRetries
+    )
+
+    private fun SoundProfileJson.toProfile() = SoundProfile(
+        ringerMode = ringerMode,
+        soundEnabled = soundEnabled,
+        soundUri = soundUri,
+        vibrationEnabled = vibrationEnabled,
+        vibrationPattern = vibrationPattern.toLongArray(),
+        vibrationRepeat = vibrationRepeat,
+        soundStartsFirst = soundStartsFirst,
+        secondStartDelaySeconds = secondStartDelaySeconds,
+        autoDismissSeconds = autoDismissSeconds,
+        autoDismissAction = autoDismissAction,
+        autoDismissSnoozeMinutes = autoDismissSnoozeMinutes,
+        autoDismissMaxRetries = autoDismissMaxRetries
+    )
+
+    fun defaultSoundProfile(mode: RingerMode): SoundProfile = when (mode) {
+        RingerMode.SOUND_ON -> SoundProfile(
+            ringerMode = RingerMode.SOUND_ON,
+            soundEnabled = true,
+            soundUri = null,
+            vibrationEnabled = true,
+            vibrationPattern = longArrayOf(0, 500, 200, 500),
+            vibrationRepeat = -1,
+            soundStartsFirst = true,
+            secondStartDelaySeconds = 0,
+            autoDismissSeconds = 60,
+            autoDismissAction = AutoDismissAction.SNOOZE,
+            autoDismissSnoozeMinutes = 10,
+            autoDismissMaxRetries = 3
+        )
+        RingerMode.VIBRATE -> SoundProfile(
+            ringerMode = RingerMode.VIBRATE,
+            soundEnabled = false,
+            soundUri = null,
+            vibrationEnabled = true,
+            vibrationPattern = longArrayOf(0, 700, 300, 700),
+            vibrationRepeat = -1,
+            soundStartsFirst = true,
+            secondStartDelaySeconds = 0,
+            autoDismissSeconds = 60,
+            autoDismissAction = AutoDismissAction.SNOOZE,
+            autoDismissSnoozeMinutes = 10,
+            autoDismissMaxRetries = 3
+        )
+        RingerMode.SILENT -> SoundProfile(
+            ringerMode = RingerMode.SILENT,
+            soundEnabled = false,
+            soundUri = null,
+            vibrationEnabled = false,
+            vibrationPattern = longArrayOf(0, 500, 200, 500),
+            vibrationRepeat = -1,
+            soundStartsFirst = true,
+            secondStartDelaySeconds = 0,
+            autoDismissSeconds = 30,
+            autoDismissAction = AutoDismissAction.SNOOZE,
+            autoDismissSnoozeMinutes = 5,
+            autoDismissMaxRetries = 2
+        )
+    }
+
+    fun getSoundProfile(ctx: Context, mode: RingerMode): SoundProfile {
+        val json = prefs(ctx).getString(KEY_SOUND_PROFILE_PREFIX + mode.name, null)
+            ?: return defaultSoundProfile(mode)
+        return try {
+            val stored = gson.fromJson(json, SoundProfileJson::class.java)
+            stored?.toProfile() ?: defaultSoundProfile(mode)
+        } catch (e: Exception) {
+            defaultSoundProfile(mode)
+        }
+    }
+
+    fun saveSoundProfile(ctx: Context, profile: SoundProfile) {
+        prefs(ctx).edit()
+            .putString(KEY_SOUND_PROFILE_PREFIX + profile.ringerMode.name,
+                gson.toJson(profile.toJson()))
+            .apply()
+    }
+
+    // ---------------------------------------------------------------------
+    // Snoozed Alarms — stored as Map<alarmId, SnoozedAlarmRecord>
+    // ---------------------------------------------------------------------
+
+    private fun readSnoozedMap(ctx: Context): MutableMap<String, SnoozedAlarmRecord> {
+        val json = prefs(ctx).getString(KEY_SNOOZED_ALARMS, null) ?: return mutableMapOf()
+        return try {
+            val type = object : TypeToken<MutableMap<String, SnoozedAlarmRecord>>() {}.type
+            gson.fromJson<MutableMap<String, SnoozedAlarmRecord>>(json, type) ?: mutableMapOf()
+        } catch (e: Exception) {
+            mutableMapOf()
+        }
+    }
+
+    private fun writeSnoozedMap(ctx: Context, map: Map<String, SnoozedAlarmRecord>) {
+        prefs(ctx).edit().putString(KEY_SNOOZED_ALARMS, gson.toJson(map)).apply()
+    }
+
+    fun saveSnoozedAlarm(ctx: Context, record: SnoozedAlarmRecord) {
+        val map = readSnoozedMap(ctx)
+        map[record.alarmId] = record
+        writeSnoozedMap(ctx, map)
+    }
+
+    fun removeSnoozedAlarm(ctx: Context, alarmId: String) {
+        val map = readSnoozedMap(ctx)
+        if (map.remove(alarmId) != null) writeSnoozedMap(ctx, map)
+    }
+
+    fun getAllSnoozedAlarms(ctx: Context): List<SnoozedAlarmRecord> =
+        readSnoozedMap(ctx).values.sortedBy { it.scheduledTimeMs }
+
+    fun getSnoozedAlarm(ctx: Context, alarmId: String): SnoozedAlarmRecord? =
+        readSnoozedMap(ctx)[alarmId]
+
+    // ---------------------------------------------------------------------
+    // Auto-snooze retry counter
+    // ---------------------------------------------------------------------
+
+    fun getAutoSnoozeCount(ctx: Context, alarmId: String): Int =
+        prefs(ctx).getInt(KEY_AUTO_SNOOZE_PREFIX + alarmId, 0)
+
+    fun incrementAutoSnoozeCount(ctx: Context, alarmId: String): Int {
+        val next = getAutoSnoozeCount(ctx, alarmId) + 1
+        prefs(ctx).edit().putInt(KEY_AUTO_SNOOZE_PREFIX + alarmId, next).apply()
+        return next
+    }
+
+    fun resetAutoSnoozeCount(ctx: Context, alarmId: String) {
+        prefs(ctx).edit().remove(KEY_AUTO_SNOOZE_PREFIX + alarmId).apply()
+    }
+
+    // ---------------------------------------------------------------------
+    // Calendar packages
+    // ---------------------------------------------------------------------
+
+    private val defaultCalendarPackages = setOf(
+        "com.google.android.calendar",
+        "com.android.calendar",
+        "com.samsung.android.calendar"
+    )
+
+    fun getCalendarPackages(ctx: Context): Set<String> =
+        prefs(ctx).getStringSet(KEY_CALENDAR_PACKAGES, null) ?: defaultCalendarPackages
+
+    fun saveCalendarPackages(ctx: Context, packages: Set<String>) {
+        prefs(ctx).edit().putStringSet(KEY_CALENDAR_PACKAGES, packages).apply()
+    }
+}
