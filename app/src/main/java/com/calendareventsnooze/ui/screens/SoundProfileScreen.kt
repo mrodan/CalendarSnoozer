@@ -19,25 +19,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,17 +46,12 @@ import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SoundProfile
-import com.calendareventsnooze.ui.theme.AppButtonRegular
-import com.calendareventsnooze.ui.theme.AppButtonRegularText
-import kotlinx.coroutines.launch
 
 @Composable
 fun SoundProfileScreen() {
     var selectedSubTab by remember { mutableIntStateOf(0) }
     val modes = listOf(RingerMode.SOUND_ON, RingerMode.VIBRATE, RingerMode.SILENT)
     val titles = listOf("Sound On", "Vibrate Mode", "Silent")
-
-    val snackbarHostState = remember { SnackbarHostState() }
 
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = selectedSubTab) {
@@ -71,16 +62,14 @@ fun SoundProfileScreen() {
         }
         // key() ensures each sub-tab keeps its own independent state.
         androidx.compose.runtime.key(selectedSubTab) {
-            ProfileEditor(mode = modes[selectedSubTab], snackbarHostState = snackbarHostState)
+            ProfileEditor(mode = modes[selectedSubTab])
         }
-        SnackbarHost(hostState = snackbarHostState)
     }
 }
 
 @Composable
-private fun ProfileEditor(mode: RingerMode, snackbarHostState: SnackbarHostState) {
+private fun ProfileEditor(mode: RingerMode) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val initial = remember(mode) { AppPrefs.getSoundProfile(context, mode) }
 
     var soundEnabled by remember(mode) { mutableStateOf(initial.soundEnabled) }
@@ -119,12 +108,42 @@ private fun ProfileEditor(mode: RingerMode, snackbarHostState: SnackbarHostState
         }
     }
 
+    // F.5 — every setting persists as soon as it changes, so there is no Save
+    // button. Keying the effect on all editable state means no change can be
+    // missed, whichever control produced it.
+    LaunchedEffect(
+        soundEnabled, soundUri, vibrationEnabled, vibrationPattern, soundStartsFirst,
+        secondDelay, autoDismissSeconds, autoSnoozeMinutes, maxRetries, autoDismissAction
+    ) {
+        AppPrefs.saveSoundProfile(
+            context,
+            SoundProfile(
+                ringerMode = mode,
+                soundEnabled = soundEnabled,
+                soundUri = soundUri,
+                vibrationEnabled = vibrationEnabled,
+                vibrationPattern = parsePattern(vibrationPattern),
+                vibrationRepeat = initial.vibrationRepeat,
+                soundStartsFirst = soundStartsFirst,
+                secondStartDelaySeconds = secondDelay.toIntOrNull() ?: 0,
+                autoDismissSeconds = autoDismissSeconds.toIntOrNull() ?: 0,
+                autoDismissAction = autoDismissAction,
+                autoDismissSnoozeMinutes = autoSnoozeMinutes.toIntOrNull() ?: 0,
+                autoDismissMaxRetries = maxRetries.toIntOrNull() ?: 0
+            )
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
+        Text("Changes are saved automatically.",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(12.dp))
+
         // 🔊 SOUND
         SectionHeader("🔊 SOUND")
         SwitchRow("Enable sound alarm", soundEnabled) { soundEnabled = it }
@@ -217,31 +236,6 @@ private fun ProfileEditor(mode: RingerMode, snackbarHostState: SnackbarHostState
             autoDismissAction = AutoDismissAction.DISMISS
         }
 
-        Spacer(Modifier.height(20.dp))
-        Button(
-            onClick = {
-                val pattern = parsePattern(vibrationPattern)
-                val profile = SoundProfile(
-                    ringerMode = mode,
-                    soundEnabled = soundEnabled,
-                    soundUri = soundUri,
-                    vibrationEnabled = vibrationEnabled,
-                    vibrationPattern = pattern,
-                    vibrationRepeat = initial.vibrationRepeat,
-                    soundStartsFirst = soundStartsFirst,
-                    secondStartDelaySeconds = secondDelay.toIntOrNull() ?: 0,
-                    autoDismissSeconds = autoDismissSeconds.toIntOrNull() ?: 0,
-                    autoDismissAction = autoDismissAction,
-                    autoDismissSnoozeMinutes = autoSnoozeMinutes.toIntOrNull() ?: 0,
-                    autoDismissMaxRetries = maxRetries.toIntOrNull() ?: 0
-                )
-                AppPrefs.saveSoundProfile(context, profile)
-                scope.launch { snackbarHostState.showSnackbar("Settings saved") }
-            },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = AppButtonRegular, contentColor = AppButtonRegularText),
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Save") }
         Spacer(Modifier.height(24.dp))
     }
 }
