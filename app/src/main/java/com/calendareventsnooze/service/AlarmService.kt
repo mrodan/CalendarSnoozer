@@ -29,13 +29,28 @@ import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.util.getAlarmEvent
 import com.calendareventsnooze.util.putAlarmEvent
 
+/**
+ * Owns every currently-ringing alarm.
+ *
+ * B.6 — alarms are held in a **stack**. A newly triggered alarm takes over the
+ * screen and the audio, but the one it interrupted stays alive underneath;
+ * resolving the top alarm (snooze / dismiss / auto-dismiss) brings the previous
+ * one back to the foreground. Nothing is ever discarded without the user acting
+ * on it.
+ */
 class AlarmService : Service() {
 
     companion object {
+        /** Stops every alarm at once (Force Stop). */
         const val ACTION_STOP = "com.calendareventsnooze.ACTION_STOP"
-        // Broadcast sent when an alarm has been resolved (stopped / auto-dismissed /
-        // auto-snoozed) so AlarmActivity can close itself. In-app only.
+
+        /** Resolves ONE alarm (by [EXTRA_ALARM_ID]) and resumes the one beneath it. */
+        const val ACTION_RESOLVE_ALARM = "com.calendareventsnooze.ACTION_RESOLVE_ALARM"
+
+        /** Broadcast: no alarms remain, the takeover screen may close. */
         const val ACTION_ALARM_RESOLVED = "com.calendareventsnooze.ALARM_RESOLVED"
+
+        const val EXTRA_ALARM_ID = "ces_resolved_alarm_id"
         const val ACTIVE_ALARM_NOTIF_ID = 1002
 
         fun cancelActiveAlarmNotification(context: Context) {
@@ -43,7 +58,16 @@ class AlarmService : Service() {
                 .cancel(ACTIVE_ALARM_NOTIF_ID)
         }
 
-        /** Ask the running alarm service (if any) to stop. */
+        /** The user acted on [alarmId]; hand control back to any alarm beneath it. */
+        fun resolveAlarm(context: Context, alarmId: String) {
+            runCatching {
+                context.startService(Intent(context, AlarmService::class.java).apply {
+                    action = ACTION_RESOLVE_ALARM
+                    putExtra(EXTRA_ALARM_ID, alarmId)
+                })
+            }
+        }
+
         fun stop(context: Context) {
             runCatching {
                 context.startService(Intent(context, AlarmService::class.java).apply {
@@ -53,9 +77,8 @@ class AlarmService : Service() {
         }
 
         /**
-         * Emergency stop for the Home-screen "Force Stop" button: silence any alarm,
-         * clear every notification, and stop the service. The caller may additionally
-         * kill the process for a guaranteed reset.
+         * Emergency stop for the Home-screen "Force Stop" button: silence everything,
+         * clear every notification, and stop the service.
          */
         fun forceStopEverything(context: Context) {
             runCatching {
@@ -66,45 +89,72 @@ class AlarmService : Service() {
         }
     }
 
+    /** Ringing alarms, oldest first. The last entry owns the screen and the audio. */
+    private val alarmStack = mutableListOf<AlarmEvent>()
+
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private val handler = Handler(Looper.getMainLooper())
-    private var currentAlarmEvent: AlarmEvent? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopAlarm()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopEverything()
+                return START_NOT_STICKY
+            }
+            ACTION_RESOLVE_ALARM -> {
+                val alarmId = intent.getStringExtra(EXTRA_ALARM_ID)
+                if (alarmId != null) resolveAndAdvance(alarmId) else stopEverything()
+                return START_STICKY
+            }
         }
 
         // A null intent means a START_STICKY restart with no alarm data — there is
         // nothing to ring, so stop quietly (prevents "ghost" restarts).
         val alarmEvent = intent?.getAlarmEvent() ?: run {
-            stopSelf()
+            if (alarmStack.isEmpty()) stopSelf()
             return START_NOT_STICKY
         }
 
-        // B.2 — never let a previous alarm's sound/vibration/handler callbacks bleed
-        // into a new one. Tear everything down before starting fresh.
-        handler.removeCallbacksAndMessages(null)
-        stopSoundAndVibration()
+        // B.6 — a new alarm interrupts the current one instead of replacing it.
+        // Silence whatever is ringing, then push the newcomer on top.
+        silenceCurrentOutput()
+        alarmStack.removeAll { it.alarmId == alarmEvent.alarmId } // guard re-delivery
+        alarmStack.add(alarmEvent)
 
-        currentAlarmEvent = alarmEvent
+        // The caller (receiver / notification listener) already launched the
+        // takeover screen for this alarm, so we only take over sound + notification.
+        presentTopAlarm(launchActivity = false)
+        return START_STICKY
+    }
 
-        // Single ongoing, high-priority, full-screen-intent notification. It is both
-        // the foreground-service notification AND the sticky "return to alarm"
-        // notification (F.3). The full-screen intent re-surfaces the takeover even if
-        // the OS blocks a background activity start (fixes B.2's "sound with no screen").
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Intentionally empty — alarm must survive task removal
+    }
+
+    // ------------------------------------------------------------------
+    // Alarm stack
+    // ------------------------------------------------------------------
+
+    /** Starts sound, notification and auto-dismiss for whatever is on top. */
+    private fun presentTopAlarm(launchActivity: Boolean) {
+        val alarmEvent = alarmStack.lastOrNull() ?: return
+
         startForeground(ACTIVE_ALARM_NOTIF_ID, buildAlarmNotification(alarmEvent))
 
-        val audioManager = getSystemService(AudioManager::class.java)
-        val ringerMode = when (audioManager.ringerMode) {
-            AudioManager.RINGER_MODE_NORMAL  -> RingerMode.SOUND_ON
-            AudioManager.RINGER_MODE_VIBRATE -> RingerMode.VIBRATE
-            else                             -> RingerMode.SILENT
+        if (launchActivity) {
+            runCatching {
+                startActivity(
+                    Intent(this, AlarmActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    }.putAlarmEvent(alarmEvent)
+                )
+            }
         }
-        val profile = AppPrefs.getSoundProfile(applicationContext, ringerMode)
 
+        val profile = currentProfile()
         startAlarmOutput(profile)
 
         if (profile.autoDismissSeconds > 0) {
@@ -113,13 +163,65 @@ class AlarmService : Service() {
                 profile.autoDismissSeconds * 1000L
             )
         }
-
-        return START_STICKY
     }
 
-    override fun onTaskRemoved(rootIntent: Intent?) {
-        // Intentionally empty — alarm must survive task removal
+    /**
+     * The user (or auto-dismiss) finished with [alarmId]: drop it from the stack
+     * and either resume the alarm underneath or shut the service down.
+     */
+    private fun resolveAndAdvance(alarmId: String) {
+        silenceCurrentOutput()
+        alarmStack.removeAll { it.alarmId == alarmId }
+
+        if (alarmStack.isEmpty()) {
+            notifyResolved(alarmId)
+            cancelActiveAlarmNotification(applicationContext)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        } else {
+            // Bring the interrupted alarm back so the user can act on it (B.6).
+            presentTopAlarm(launchActivity = true)
+        }
     }
+
+    /** Silences audio/vibration and cancels any pending auto-dismiss. */
+    private fun silenceCurrentOutput() {
+        handler.removeCallbacksAndMessages(null)
+        stopSoundAndVibration()
+    }
+
+    private fun stopEverything() {
+        silenceCurrentOutput()
+        val last = alarmStack.lastOrNull()?.alarmId
+        alarmStack.clear()
+        notifyResolved(last)
+        cancelActiveAlarmNotification(applicationContext)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun notifyResolved(alarmId: String?) {
+        runCatching {
+            sendBroadcast(Intent(ACTION_ALARM_RESOLVED).apply {
+                setPackage(packageName)
+                putExtra(EXTRA_ALARM_ID, alarmId)
+            })
+        }
+    }
+
+    private fun currentProfile(): SoundProfile {
+        val audioManager = getSystemService(AudioManager::class.java)
+        val ringerMode = when (audioManager.ringerMode) {
+            AudioManager.RINGER_MODE_NORMAL  -> RingerMode.SOUND_ON
+            AudioManager.RINGER_MODE_VIBRATE -> RingerMode.VIBRATE
+            else                             -> RingerMode.SILENT
+        }
+        return AppPrefs.getSoundProfile(applicationContext, ringerMode)
+    }
+
+    // ------------------------------------------------------------------
+    // Notification
+    // ------------------------------------------------------------------
 
     private fun alarmPendingIntent(alarmEvent: AlarmEvent): PendingIntent {
         val returnIntent = Intent(this, AlarmActivity::class.java).apply {
@@ -135,9 +237,13 @@ class AlarmService : Service() {
 
     private fun buildAlarmNotification(alarmEvent: AlarmEvent): Notification {
         val pi = alarmPendingIntent(alarmEvent)
+        val waiting = alarmStack.size - 1
+        val subText = if (waiting > 0) "+$waiting more alarm${if (waiting > 1) "s" else ""} waiting"
+                      else null
         return NotificationCompat.Builder(this, "ces_alarm_active")
             .setContentTitle("⚠ Calendar Alarm Active")
             .setContentText(alarmEvent.eventTitle.ifBlank { "Tap to open the alarm" })
+            .setSubText(subText)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentIntent(pi)
             .setFullScreenIntent(pi, true)
@@ -148,6 +254,10 @@ class AlarmService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
+
+    // ------------------------------------------------------------------
+    // Sound & vibration
+    // ------------------------------------------------------------------
 
     private fun startAlarmOutput(profile: SoundProfile) {
         if (profile.soundStartsFirst) {
@@ -198,19 +308,25 @@ class AlarmService : Service() {
             vibrator?.vibrate(profile.vibrationPattern, profile.vibrationRepeat)
     }
 
-    private fun handleAutoDismiss(profile: SoundProfile, alarmEvent: AlarmEvent) {
-        // Cancel any still-pending delayed output before resolving.
-        handler.removeCallbacksAndMessages(null)
-        stopSoundAndVibration()
-        cancelActiveAlarmNotification(applicationContext)
+    private fun stopSoundAndVibration() {
+        runCatching { mediaPlayer?.stop(); mediaPlayer?.release() }
+        mediaPlayer = null
+        runCatching { vibrator?.cancel() }
+        vibrator = null
+    }
 
+    // ------------------------------------------------------------------
+    // Auto-dismiss / auto-snooze
+    // ------------------------------------------------------------------
+
+    private fun handleAutoDismiss(profile: SoundProfile, alarmEvent: AlarmEvent) {
         // Special case: maxRetries == 0 means dismiss immediately, no snooze
         if (profile.autoDismissMaxRetries == 0 ||
             profile.autoDismissAction == AutoDismissAction.DISMISS) {
             AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
             AppPrefs.removeSnoozedAlarm(applicationContext, alarmEvent.alarmId)
             showMissedNotification(alarmEvent.eventTitle)
-            finishService()
+            resolveAndAdvance(alarmEvent.alarmId)
             return
         }
 
@@ -222,7 +338,6 @@ class AlarmService : Service() {
             AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
             AppPrefs.removeSnoozedAlarm(applicationContext, alarmEvent.alarmId)
             showMissedNotification(alarmEvent.eventTitle)
-            finishService()
         } else {
             // Auto-snooze — schedule and save to snoozed list
             val snoozeMs = System.currentTimeMillis() +
@@ -237,35 +352,8 @@ class AlarmService : Service() {
                     eventTimeMs = alarmEvent.eventTimeMs,
                     scheduledTimeMs = snoozeMs
                 ))
-            finishService()
         }
-    }
-
-    fun stopAlarm() {
-        handler.removeCallbacksAndMessages(null)
-        stopSoundAndVibration()
-        cancelActiveAlarmNotification(applicationContext)
-        finishService()
-    }
-
-    /** Notify any visible AlarmActivity that the alarm is over, then stop. */
-    private fun finishService() {
-        notifyResolved()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-    }
-
-    private fun notifyResolved() {
-        runCatching {
-            sendBroadcast(Intent(ACTION_ALARM_RESOLVED).setPackage(packageName))
-        }
-    }
-
-    private fun stopSoundAndVibration() {
-        runCatching { mediaPlayer?.stop(); mediaPlayer?.release() }
-        mediaPlayer = null
-        runCatching { vibrator?.cancel() }
-        vibrator = null
+        resolveAndAdvance(alarmEvent.alarmId)
     }
 
     private fun showMissedNotification(title: String) {
@@ -280,8 +368,7 @@ class AlarmService : Service() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacksAndMessages(null)
-        stopSoundAndVibration()
+        silenceCurrentOutput()
         super.onDestroy()
     }
 
