@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -53,6 +54,12 @@ fun SoundProfileScreen() {
     val modes = listOf(RingerMode.SOUND_ON, RingerMode.VIBRATE, RingerMode.SILENT)
     val titles = listOf("Sound On", "Vibrate Mode", "Silent")
 
+    // UI.6 — one scroll state per sub-tab, owned here so it survives switching
+    // tabs; each mode returns to where it was left.
+    val scrollStates = listOf(
+        rememberScrollState(), rememberScrollState(), rememberScrollState()
+    )
+
     Column(Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = selectedSubTab) {
             titles.forEachIndexed { i, t ->
@@ -62,13 +69,16 @@ fun SoundProfileScreen() {
         }
         // key() ensures each sub-tab keeps its own independent state.
         androidx.compose.runtime.key(selectedSubTab) {
-            ProfileEditor(mode = modes[selectedSubTab])
+            ProfileEditor(
+                mode = modes[selectedSubTab],
+                scrollState = scrollStates[selectedSubTab]
+            )
         }
     }
 }
 
 @Composable
-private fun ProfileEditor(mode: RingerMode) {
+private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     val context = LocalContext.current
     val initial = remember(mode) { AppPrefs.getSoundProfile(context, mode) }
 
@@ -77,6 +87,9 @@ private fun ProfileEditor(mode: RingerMode) {
     var vibrationEnabled by remember(mode) { mutableStateOf(initial.vibrationEnabled) }
     var vibrationPattern by remember(mode) {
         mutableStateOf(initial.vibrationPattern.joinToString(","))
+    }
+    var vibrationRepetitions by remember(mode) {
+        mutableStateOf(initial.vibrationRepetitions.toString())
     }
     var soundStartsFirst by remember(mode) { mutableStateOf(initial.soundStartsFirst) }
     var secondDelay by remember(mode) {
@@ -112,8 +125,9 @@ private fun ProfileEditor(mode: RingerMode) {
     // button. Keying the effect on all editable state means no change can be
     // missed, whichever control produced it.
     LaunchedEffect(
-        soundEnabled, soundUri, vibrationEnabled, vibrationPattern, soundStartsFirst,
-        secondDelay, autoDismissSeconds, autoSnoozeMinutes, maxRetries, autoDismissAction
+        soundEnabled, soundUri, vibrationEnabled, vibrationPattern, vibrationRepetitions,
+        soundStartsFirst, secondDelay, autoDismissSeconds, autoSnoozeMinutes, maxRetries,
+        autoDismissAction
     ) {
         AppPrefs.saveSoundProfile(
             context,
@@ -124,6 +138,8 @@ private fun ProfileEditor(mode: RingerMode) {
                 vibrationEnabled = vibrationEnabled,
                 vibrationPattern = parsePattern(vibrationPattern),
                 vibrationRepeat = initial.vibrationRepeat,
+                vibrationRepetitions = vibrationRepetitions.toIntOrNull()?.coerceAtLeast(1)
+                    ?: AppPrefs.DEFAULT_VIBRATION_REPETITIONS,
                 soundStartsFirst = soundStartsFirst,
                 secondStartDelaySeconds = secondDelay.toIntOrNull() ?: 0,
                 autoDismissSeconds = autoDismissSeconds.toIntOrNull() ?: 0,
@@ -137,7 +153,7 @@ private fun ProfileEditor(mode: RingerMode) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(16.dp)
     ) {
         Text("Changes are saved automatically.",
@@ -174,10 +190,22 @@ private fun ProfileEditor(mode: RingerMode) {
             value = vibrationPattern,
             onValueChange = { vibrationPattern = it },
             label = { Text("Pattern (comma-separated ms)") },
+            // F.6 — numeric keypad. Phone (not Number) because the pattern needs
+            // commas, which the pure-number keypad has no key for.
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
             modifier = Modifier.fillMaxWidth()
         )
         Text("Format: delay,ON,off,ON — e.g. 0,500,200,500",
             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(8.dp))
+        // F.7 — how many times the whole pattern plays.
+        OutlinedTextField(
+            value = vibrationRepetitions,
+            onValueChange = { vibrationRepetitions = it.filter { c -> c.isDigit() } },
+            label = { Text("Pattern Repetitions") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
 
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()
@@ -201,10 +229,17 @@ private fun ProfileEditor(mode: RingerMode) {
 
         // ⏰ AUTO-SNOOZE / AUTO-DISMISS
         SectionHeader("AUTO-SNOOZE / AUTO-DISMISS")
+        // UI.7 — one switch replaces the "Auto-snooze and retry" /
+        // "Dismiss immediately (no retry)" radio pair.
+        SwitchRow("Auto-Snooze ON", autoDismissAction == AutoDismissAction.SNOOZE) { on ->
+            autoDismissAction =
+                if (on) AutoDismissAction.SNOOZE else AutoDismissAction.DISMISS
+        }
+        Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             value = autoDismissSeconds,
             onValueChange = { autoDismissSeconds = it.filter { c -> c.isDigit() } },
-            label = { Text("Trigger after (seconds) — 0 to disable") },
+            label = { Text("Trigger Auto-Snooze after (seconds) — 0 to disable") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
@@ -226,15 +261,6 @@ private fun ProfileEditor(mode: RingerMode) {
         )
         Text("0 attempts = dismiss immediately. 3 = snooze 3 times, then dismiss.",
             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(8.dp))
-        RadioRow("Auto-snooze and retry",
-            autoDismissAction == AutoDismissAction.SNOOZE) {
-            autoDismissAction = AutoDismissAction.SNOOZE
-        }
-        RadioRow("Dismiss immediately (no retry)",
-            autoDismissAction == AutoDismissAction.DISMISS) {
-            autoDismissAction = AutoDismissAction.DISMISS
-        }
 
         Spacer(Modifier.height(24.dp))
     }
