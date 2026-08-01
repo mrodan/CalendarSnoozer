@@ -1,5 +1,6 @@
 package com.calendareventsnooze.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -20,7 +20,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,12 +27,12 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,16 +42,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.SnoozePreset
-import com.calendareventsnooze.ui.theme.AlarmAccentGold
 import com.calendareventsnooze.ui.theme.AlarmBackground
 import com.calendareventsnooze.ui.theme.AlarmCalendarBlue
 import com.calendareventsnooze.ui.theme.AlarmDanger
-import com.calendareventsnooze.ui.theme.AlarmSurface
+import com.calendareventsnooze.ui.theme.AlarmDateAndTime
+import com.calendareventsnooze.ui.theme.AlarmSnoozeButton
+import com.calendareventsnooze.ui.theme.AlarmSpecifyTime
 import com.calendareventsnooze.ui.theme.AlarmTextPrimary
 import com.calendareventsnooze.ui.theme.AlarmTextSecondary
+import com.calendareventsnooze.util.combineDateAndTime
 import com.calendareventsnooze.util.formatEventTime
 import kotlinx.coroutines.delay
 import java.util.Calendar
+
+// UI.2 — buttons are 1.5x taller (was 64dp) with 2x thicker borders (was 1dp).
+private val ACTION_BUTTON_HEIGHT = 96.dp
+private val ACTION_BUTTON_BORDER = 2.dp
 
 @Composable
 fun AlarmScreen(
@@ -67,8 +72,9 @@ fun AlarmScreen(
     var showSpecifyTime by remember { mutableStateOf(false) }
     var showTimeAndDate by remember { mutableStateOf(false) }
 
-    var secondsLeft by remember { mutableIntStateOf(autoDismissSeconds) }
-    LaunchedEffect(Unit) {
+    // Countdown restarts whenever a different alarm takes over the screen.
+    var secondsLeft by remember(alarmEvent.alarmId) { mutableIntStateOf(autoDismissSeconds) }
+    LaunchedEffect(alarmEvent.alarmId) {
         if (autoDismissSeconds <= 0) return@LaunchedEffect
         while (secondsLeft > 0) {
             delay(1000L)
@@ -85,7 +91,10 @@ fun AlarmScreen(
             .padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Open Calendar Event
+        // UI.2 — everything is pushed down so the Open Calendar button now starts
+        // where the alarm heading used to sit (old button height 56dp + 24dp gap).
+        Spacer(Modifier.height(80.dp))
+
         Button(
             onClick = onOpenCalendar,
             modifier = Modifier
@@ -150,22 +159,26 @@ fun AlarmScreen(
 
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(
+            Button(
                 onClick = { showSpecifyTime = true },
                 modifier = Modifier
                     .weight(1f)
-                    .height(64.dp),
+                    .height(ACTION_BUTTON_HEIGHT),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = AlarmAccentGold)
-            ) { Text("⏱ Specify Time") }
-            OutlinedButton(
+                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmTextSecondary),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AlarmSpecifyTime, contentColor = Color.White)
+            ) { Text("⏱ Specify Time", fontWeight = FontWeight.Bold) }
+            Button(
                 onClick = { showTimeAndDate = true },
                 modifier = Modifier
                     .weight(1f)
-                    .height(64.dp),
+                    .height(ACTION_BUTTON_HEIGHT),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = AlarmAccentGold)
-            ) { Text("📅 Time & Date") }
+                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmTextSecondary),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AlarmDateAndTime, contentColor = Color.Black)
+            ) { Text("📅 Time & Date", fontWeight = FontWeight.Bold) }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -211,14 +224,17 @@ private fun PresetButton(
     modifier: Modifier,
     onSnooze: (Long) -> Unit
 ) {
-    OutlinedButton(
+    // UI.2 — light background with black text.
+    Button(
         onClick = { preset?.let { onSnooze(System.currentTimeMillis() + it.minutes * 60_000L) } },
         enabled = preset != null,
-        modifier = modifier.height(64.dp),
+        modifier = modifier.height(ACTION_BUTTON_HEIGHT),
         shape = RoundedCornerShape(12.dp),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = AlarmTextPrimary)
+        border = BorderStroke(ACTION_BUTTON_BORDER, AlarmTextSecondary),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = AlarmSnoozeButton, contentColor = Color.Black)
     ) {
-        Text(preset?.label ?: "—")
+        Text(preset?.label ?: "—", fontSize = 18.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -252,8 +268,9 @@ private fun SectionDivider(label: String) {
     }
 }
 
+/** Shared with the Snoozed Alarms "Manage" view (F.4). */
 @Composable
-private fun SpecifyTimeDialog(
+internal fun SpecifyTimeDialog(
     onDismiss: () -> Unit,
     onConfirm: (totalMinutes: Int) -> Unit
 ) {
@@ -292,10 +309,15 @@ private fun SpecifyTimeDialog(
     )
 }
 
+/**
+ * Time-then-date snooze picker. Shared with the Snoozed Alarms "Manage" view so
+ * the UTC date handling (B.3) has a single implementation (B.4).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TimeAndDateDialog(
+internal fun TimeAndDateDialog(
     onDismiss: () -> Unit,
+    confirmLabel: String = "Snooze",
     onConfirm: (ms: Long) -> Unit
 ) {
     val defaultCal = remember {
@@ -331,19 +353,11 @@ private fun TimeAndDateDialog(
                 TextButton(onClick = {
                     val dateMs = dateState.selectedDateMillis
                     if (dateMs != null) {
-                        val dateCal = Calendar.getInstance().apply { timeInMillis = dateMs }
-                        val result = Calendar.getInstance().apply {
-                            set(Calendar.YEAR, dateCal.get(Calendar.YEAR))
-                            set(Calendar.MONTH, dateCal.get(Calendar.MONTH))
-                            set(Calendar.DAY_OF_MONTH, dateCal.get(Calendar.DAY_OF_MONTH))
-                            set(Calendar.HOUR_OF_DAY, timeState.hour)
-                            set(Calendar.MINUTE, timeState.minute)
-                            set(Calendar.SECOND, 0)
-                            set(Calendar.MILLISECOND, 0)
-                        }.timeInMillis
+                        // B.3 — combineDateAndTime reads the picker's UTC date correctly.
+                        val result = combineDateAndTime(dateMs, timeState.hour, timeState.minute)
                         if (result > System.currentTimeMillis()) onConfirm(result)
                     }
-                }) { Text("Snooze") }
+                }) { Text(confirmLabel) }
             },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
         ) {

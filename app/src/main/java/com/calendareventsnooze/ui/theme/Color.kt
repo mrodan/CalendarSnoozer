@@ -22,9 +22,12 @@ val AppTextPrimary    = Color(0xFF202124)
 val AppTextSecondary  = Color(0xFF5F6368)
 
 // ---------------------------------------------------------------------------
-// Alarm takeover palette — kept high-contrast for alarm visibility
+// Alarm takeover palette (UI.2)
 // ---------------------------------------------------------------------------
-val AlarmBackground    = Color(0xFF1A1A2E)
+val AlarmBackground    = Color(0xFF202124) // UI.2 — dark neutral takeover background
+val AlarmSnoozeButton  = Color(0xFFF1F3F4) // UI.2 — snooze presets (black text)
+val AlarmSpecifyTime   = Color(0xFF5F6368) // UI.2 — Specify Time
+val AlarmDateAndTime   = Color(0xFFE8F5E9) // UI.2 — Date & Time
 val AlarmSurface       = Color(0xFF16213E)
 val AlarmAccentGold    = Color(0xFFFFD700)
 val AlarmDanger        = Color(0xFFC0392B)
