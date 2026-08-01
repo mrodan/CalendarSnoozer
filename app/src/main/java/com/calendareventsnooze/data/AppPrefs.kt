@@ -21,6 +21,9 @@ object AppPrefs {
 
     private val gson = Gson()
 
+    /** F.7 — default number of times a vibration pattern plays. */
+    const val DEFAULT_VIBRATION_REPETITIONS = 4
+
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -62,6 +65,9 @@ object AppPrefs {
         val vibrationEnabled: Boolean,
         val vibrationPattern: List<Long>,
         val vibrationRepeat: Int,
+        // Nullable so profiles saved before F.7 existed migrate to the default
+        // rather than silently becoming 0 repetitions.
+        val vibrationRepetitions: Int?,
         val soundStartsFirst: Boolean,
         val secondStartDelaySeconds: Int,
         val autoDismissSeconds: Int,
@@ -72,7 +78,7 @@ object AppPrefs {
 
     private fun SoundProfile.toJson() = SoundProfileJson(
         ringerMode, soundEnabled, soundUri, vibrationEnabled,
-        vibrationPattern.toList(), vibrationRepeat, soundStartsFirst,
+        vibrationPattern.toList(), vibrationRepeat, vibrationRepetitions, soundStartsFirst,
         secondStartDelaySeconds, autoDismissSeconds, autoDismissAction,
         autoDismissSnoozeMinutes, autoDismissMaxRetries
     )
@@ -84,6 +90,8 @@ object AppPrefs {
         vibrationEnabled = vibrationEnabled,
         vibrationPattern = vibrationPattern.toLongArray(),
         vibrationRepeat = vibrationRepeat,
+        vibrationRepetitions = (vibrationRepetitions ?: DEFAULT_VIBRATION_REPETITIONS)
+            .coerceAtLeast(1),
         soundStartsFirst = soundStartsFirst,
         secondStartDelaySeconds = secondStartDelaySeconds,
         autoDismissSeconds = autoDismissSeconds,
@@ -100,6 +108,7 @@ object AppPrefs {
             vibrationEnabled = true,
             vibrationPattern = longArrayOf(0, 500, 200, 500),
             vibrationRepeat = -1,
+            vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
             secondStartDelaySeconds = 0,
             autoDismissSeconds = 60,
@@ -114,6 +123,7 @@ object AppPrefs {
             vibrationEnabled = true,
             vibrationPattern = longArrayOf(0, 700, 300, 700),
             vibrationRepeat = -1,
+            vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
             secondStartDelaySeconds = 0,
             autoDismissSeconds = 60,
@@ -128,6 +138,7 @@ object AppPrefs {
             vibrationEnabled = false,
             vibrationPattern = longArrayOf(0, 500, 200, 500),
             vibrationRepeat = -1,
+            vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
             secondStartDelaySeconds = 0,
             autoDismissSeconds = 30,

@@ -10,6 +10,7 @@ data class SoundProfile(
     val vibrationEnabled: Boolean,
     val vibrationPattern: LongArray,  // ms: [delay, on, off, on, ...] e.g. [0,500,200,500]
     val vibrationRepeat: Int,         // -1 = no repeat; 0 = repeat from index 0
+    val vibrationRepetitions: Int,    // F.7 — how many times the pattern plays (min 1)
     val soundStartsFirst: Boolean,
     val secondStartDelaySeconds: Int, // 0 = start both simultaneously
     val autoDismissSeconds: Int,      // 0 = never auto-dismiss
@@ -27,6 +28,7 @@ data class SoundProfile(
             vibrationEnabled == other.vibrationEnabled &&
             vibrationPattern.contentEquals(other.vibrationPattern) &&
             vibrationRepeat == other.vibrationRepeat &&
+            vibrationRepetitions == other.vibrationRepetitions &&
             soundStartsFirst == other.soundStartsFirst &&
             secondStartDelaySeconds == other.secondStartDelaySeconds &&
             autoDismissSeconds == other.autoDismissSeconds &&
@@ -42,6 +44,7 @@ data class SoundProfile(
         result = 31 * result + vibrationEnabled.hashCode()
         result = 31 * result + vibrationPattern.contentHashCode()
         result = 31 * result + vibrationRepeat
+        result = 31 * result + vibrationRepetitions
         result = 31 * result + soundStartsFirst.hashCode()
         result = 31 * result + secondStartDelaySeconds
         result = 31 * result + autoDismissSeconds
