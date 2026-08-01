@@ -18,6 +18,26 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+      B.5 — Android 11+ (API 30) package visibility. Without this block,
+      getLaunchIntentForPackage()/resolveActivity() silently return null for the
+      calendar apps, which made "Open Calendar Event" fall through to a bare
+      ACTION_VIEW and show an unrelated app chooser ("Open with Google").
+    -->
+    <queries>
+        <package android:name="com.google.android.calendar" />
+        <package android:name="com.android.calendar" />
+        <package android:name="com.samsung.android.calendar" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="content" android:host="com.android.calendar" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_CALENDAR" />
+        </intent>
+    </queries>
+
     <application
         android:name=".CalendarEventSnoozeApp"
         android:allowBackup="true"
