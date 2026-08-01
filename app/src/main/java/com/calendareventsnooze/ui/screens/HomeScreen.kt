@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -44,6 +45,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -53,9 +58,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.calendareventsnooze.data.AppPrefs
+import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.service.AlarmService
-import com.calendareventsnooze.ui.theme.AppAccentBlue
-import com.calendareventsnooze.ui.theme.AppAccentBlueText
 import com.calendareventsnooze.ui.theme.AppButtonRegular
 import com.calendareventsnooze.ui.theme.AppButtonRegularText
 import com.calendareventsnooze.ui.theme.AppForceStop
@@ -64,13 +69,48 @@ import com.calendareventsnooze.ui.theme.AppGreenCheck
 import com.calendareventsnooze.ui.theme.AppWarningYellow
 import com.calendareventsnooze.util.TestAlarmHelper
 
+/**
+ * UI.4 — a Gmail-style scrollbar: a thumb drawn down the right edge, sized and
+ * positioned from the scroll state, shown only when the content overflows.
+ */
+private fun Modifier.verticalScrollbar(
+    state: ScrollState,
+    color: Color
+): Modifier = drawWithContent {
+    drawContent()
+    if (state.maxValue <= 0) return@drawWithContent
+    val viewport = size.height
+    val thumbWidth = 4.dp.toPx()
+    val thumbHeight = (viewport / (viewport + state.maxValue)) * viewport
+    val travel = viewport - thumbHeight
+    val offsetY = (state.value.toFloat() / state.maxValue) * travel
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(size.width - thumbWidth, offsetY),
+        size = Size(thumbWidth, thumbHeight),
+        cornerRadius = CornerRadius(thumbWidth / 2f)
+    )
+}
+
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
 
-    // Recompute permission states whenever the screen resumes.
+    // Recompute permissions / snoozed alarms whenever the screen resumes.
     var refreshKey by remember { mutableIntStateOf(0) }
     OnResumeRefresh { refreshKey++ }
+
+    var managing by remember { mutableStateOf<SnoozedAlarmRecord?>(null) }
+    val alarms = remember(refreshKey) { AppPrefs.getAllSnoozedAlarms(context) }
+
+    val current = managing
+    if (current != null) {
+        ManageSnoozeView(
+            record = current,
+            onDone = { managing = null; refreshKey++ }
+        )
+        return
+    }
 
     val notificationAccess = remember(refreshKey) { hasNotificationAccess(context) }
     val overlay = remember(refreshKey) { Settings.canDrawOverlays(context) }
@@ -88,13 +128,21 @@ fun HomeScreen() {
     var showOverlayDialog by remember { mutableStateOf(false) }
     var permissionsExpanded by remember { mutableStateOf(false) }
 
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScrollbar(scrollState, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+            .verticalScroll(scrollState)
             .padding(16.dp)
     ) {
-        // ---- Force Stop (F.2-2) ----
+        // ---- Snoozed Alarms (UI.4) ----
+        SnoozedAlarmsSection(alarms = alarms, onManage = { managing = it })
+
+        Spacer(Modifier.height(24.dp))
+
+        // ---- Force Stop ----
         Button(
             onClick = {
                 // Emergency: silence any alarm, clear notifications, then hard-reset
@@ -113,11 +161,12 @@ fun HomeScreen() {
 
         Spacer(Modifier.height(24.dp))
 
-        // ---- Test Alarm (F.2-3) ----
+        // ---- Test Alarm ----
         Text("Test Alarm", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
+                // UI.5 — matches the lock-screen test button.
                 Button(
                     onClick = {
                         if (Settings.canDrawOverlays(context)) {
@@ -128,7 +177,7 @@ fun HomeScreen() {
                         .fillMaxWidth()
                         .height(56.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = AppAccentBlue, contentColor = AppAccentBlueText)
+                        containerColor = AppButtonRegular, contentColor = AppButtonRegularText)
                 ) { Text("🔔  FIRE TEST ALARM NOW", fontWeight = FontWeight.Bold) }
 
                 Spacer(Modifier.height(12.dp))
@@ -150,7 +199,7 @@ fun HomeScreen() {
 
         Spacer(Modifier.height(24.dp))
 
-        // ---- Permissions (collapsible, F.2-4) ----
+        // ---- Permissions (collapsible) ----
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -226,6 +275,8 @@ fun HomeScreen() {
                 }
             }
         }
+
+        Spacer(Modifier.height(24.dp))
     }
 
     if (showOverlayDialog) {

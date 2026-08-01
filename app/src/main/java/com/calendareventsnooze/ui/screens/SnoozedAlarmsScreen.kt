@@ -1,7 +1,6 @@
 package com.calendareventsnooze.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,8 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,7 +20,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,64 +44,56 @@ import com.calendareventsnooze.util.formatScheduledTime
 private val MANAGE_BUTTON_HEIGHT = 56.dp
 private val PRESET_BACKGROUND = Color(0xFFF1F3F4)
 
+/**
+ * UI.4 — the snoozed-alarm list, rendered as plain rows so it can live inside
+ * the Home tab's scrolling column (a LazyColumn cannot nest in a parent that
+ * scrolls the same direction).
+ */
 @Composable
-fun SnoozedAlarmsScreen() {
-    val context = LocalContext.current
-    var refreshKey by remember { mutableIntStateOf(0) }
-    var managing by remember { mutableStateOf<SnoozedAlarmRecord?>(null) }
+fun SnoozedAlarmsSection(
+    alarms: List<SnoozedAlarmRecord>,
+    onManage: (SnoozedAlarmRecord) -> Unit
+) {
+    Text("Snoozed Alarms", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(8.dp))
 
-    val alarms = remember(refreshKey) { AppPrefs.getAllSnoozedAlarms(context) }
-
-    val current = managing
-    if (current == null) {
-        if (alarms.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No snoozed alarms",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+    if (alarms.isEmpty()) {
+        Text("No Snoozed Alarms",
+            fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else {
+        alarms.forEach { record ->
+            Card(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
             ) {
-                items(alarms, key = { it.alarmId }) { record ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(record.eventTitle, fontWeight = FontWeight.Bold)
-                                Text(formatScheduledTime(record.scheduledTimeMs),
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Button(
-                                onClick = { managing = record },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = AppButtonRegular,
-                                    contentColor = AppButtonRegularText)
-                            ) { Text("Manage") }
-                        }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(record.eventTitle, fontWeight = FontWeight.Bold)
+                        Text(formatScheduledTime(record.scheduledTimeMs),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    Button(
+                        onClick = { onManage(record) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AppButtonRegular,
+                            contentColor = AppButtonRegularText)
+                    ) { Text("Manage") }
                 }
             }
         }
-    } else {
-        ManageSnoozeView(
-            record = current,
-            onDone = { managing = null; refreshKey++ }
-        )
     }
 }
 
 @Composable
-private fun ManageSnoozeView(
+fun ManageSnoozeView(
     record: SnoozedAlarmRecord,
     onDone: () -> Unit
 ) {

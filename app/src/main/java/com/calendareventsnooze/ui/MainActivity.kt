@@ -3,9 +3,13 @@ package com.calendareventsnooze.ui
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Surface
@@ -17,13 +21,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.ui.screens.HomeScreen
 import com.calendareventsnooze.ui.screens.SnoozePresetsScreen
-import com.calendareventsnooze.ui.screens.SnoozedAlarmsScreen
+
 import com.calendareventsnooze.ui.screens.SoundProfileScreen
+import com.calendareventsnooze.ui.theme.AppForceStop
 import com.calendareventsnooze.ui.theme.AppTopBar
 import com.calendareventsnooze.ui.theme.AppTopBarText
 import com.calendareventsnooze.ui.theme.CalendarEventSnoozeTheme
@@ -47,14 +56,36 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainScreen() {
     var selectedTab by remember { mutableIntStateOf(0) }
-    // F.1 — tab order: Home, Snoozed Alarms, Snooze Buttons, Sound & Vibration
-    val tabs = listOf("Home", "Snoozed Alarms", "Snooze Buttons", "Sound & Vibration")
+    // UI.4 — Snoozed Alarms now lives inside the Home tab.
+    val tabs = listOf("Home", "Snooze Buttons", "Sound & Vibration")
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.statusBars)
     ) {
+        // UI.9 — app title bar above the tabs.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(AppForceStop)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Text(
+                "CALENDAR EVENT SNOOZE",
+                color = Color.Black,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "  (IFYKYK)",
+                color = Color.Gray,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
         TabRow(
             selectedTabIndex = selectedTab,
             containerColor = AppTopBar,
@@ -72,9 +103,8 @@ private fun MainScreen() {
         }
         when (selectedTab) {
             0 -> HomeScreen()
-            1 -> SnoozedAlarmsScreen()
-            2 -> SnoozePresetsScreen()
-            3 -> SoundProfileScreen()
+            1 -> SnoozePresetsScreen()
+            2 -> SoundProfileScreen()
         }
     }
 }
