@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.ui.screens.HomeScreen
 import com.calendareventsnooze.ui.screens.SnoozePresetsScreen
 import com.calendareventsnooze.ui.screens.SnoozedAlarmsScreen
@@ -30,6 +31,9 @@ import com.calendareventsnooze.ui.theme.CalendarEventSnoozeTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // B.7 — self-heal any snoozed alarm whose OS-level alarm was lost (reboot,
+        // process death). Past-due entries are revived instead of sitting dead.
+        AlarmScheduler.rescheduleAllSnoozed(applicationContext)
         setContent {
             CalendarEventSnoozeTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {

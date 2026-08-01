@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.calendareventsnooze.data.AppPrefs
+import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.service.AlarmService
 import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.util.getAlarmEvent
@@ -27,7 +28,13 @@ class AlarmReceiver : BroadcastReceiver() {
                                 Intent.FLAG_ACTIVITY_SINGLE_TOP
                     }.putAlarmEvent(alarmEvent))
             }
-            Intent.ACTION_BOOT_COMPLETED -> { /* AlarmManager handles persistence */ }
+            Intent.ACTION_BOOT_COMPLETED -> {
+                // B.7 — AlarmManager does NOT persist alarms across a reboot, so
+                // every snoozed alarm must be re-armed here. Without this, the
+                // saved records survive but their alarms are gone forever, which
+                // is what left past-dated rows in the Snoozed Alarms tab.
+                AlarmScheduler.rescheduleAllSnoozed(context)
+            }
         }
     }
 }

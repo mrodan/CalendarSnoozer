@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.receiver.AlarmReceiver
 import com.calendareventsnooze.util.putAlarmEvent
@@ -37,6 +38,47 @@ object AlarmScheduler {
             }
             else -> am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMs, pi)
         }
+    }
+
+    /**
+     * B.7 — re-arms every saved snoozed alarm.
+     *
+     * AlarmManager alarms are **lost on reboot** (and whenever the OS clears the
+     * app's pending intents), while the snoozed records live on in
+     * SharedPreferences. That combination is what left entries sitting in the
+     * Snoozed Alarms tab with a time in the past that could never fire again.
+     *
+     * Future alarms are simply re-armed at their original time. Alarms whose
+     * time already passed while they were un-armed are re-armed a short moment
+     * from now — staggered so several don't fire at once — and their stored time
+     * is corrected, so the user still gets the reminder they asked for instead of
+     * a dead row.
+     *
+     * @return how many past-due alarms were repaired.
+     */
+    fun rescheduleAllSnoozed(ctx: Context): Int {
+        val now = System.currentTimeMillis()
+        var repaired = 0
+        var stagger = 0L
+        AppPrefs.getAllSnoozedAlarms(ctx).forEach { record ->
+            val event = AlarmEvent(
+                alarmId = record.alarmId,
+                eventTitle = record.eventTitle,
+                eventText = record.eventText,
+                eventId = record.eventId,
+                eventTimeMs = record.eventTimeMs
+            )
+            if (record.scheduledTimeMs > now) {
+                scheduleAt(ctx, event, record.scheduledTimeMs)
+            } else {
+                stagger += 30_000L
+                val revived = now + stagger
+                scheduleAt(ctx, event, revived)
+                AppPrefs.saveSnoozedAlarm(ctx, record.copy(scheduledTimeMs = revived))
+                repaired++
+            }
+        }
+        return repaired
     }
 
     fun cancelAlarm(ctx: Context, alarmId: String) {
