@@ -38,3 +38,14 @@ Legend: [ ] NOT STARTED | [~] IN PROGRESS | [x] DONE
 - [x] F.3 Sticky full-screen-intent notification (channel ces_alarm_active) returns the user to the takeover.
 - [x] UI.1 Mellow palette: bg #F1F3F4, tab bar #5F6368, regular buttons #E8F5E9, Force Stop #C6FF00, accent blue #4285F4. Alarm takeover kept high-contrast (accent blue applied to Open Calendar).
 - Verified on emulator: clean build, no crash, Home layout + tab order + colors + collapsible permissions all render. B.1/B.2 gesture behaviour must be confirmed on the physical device.
+
+## Feedback round 2 (Pixel 5a / Android 14) — DONE, build clean, verified on emulator @ America/New_York
+- [x] B.3 Time & Date snoozed one day early — Material3 DatePicker returns **UTC midnight**; the code read it with a local Calendar, shifting the day back in every timezone behind UTC. New shared `combineDateAndTime()` extracts Y/M/D in UTC. Verified: picking Aug 5 → "Wed Aug 5 at 1:00 PM".
+- [x] B.4 Snoozed Alarms → Reschedule same bug — now reuses the takeover screen's `TimeAndDateDialog`, so one implementation serves both. Verified: reschedule to Aug 12 → "Wed Aug 12 at 1:00 PM".
+- [x] B.5 Open Calendar Event showed an app chooser then "Couldn't load object" — two causes: (1) no `<queries>` element, so Android 11+ package visibility made `getLaunchIntentForPackage` return null; (2) the fallback used a bare `ACTION_VIEW` on `CalendarContract.CONTENT_URI`, which unrelated apps claim (Messages claims it on stock images). Now every candidate intent is aimed at a **known calendar package only**, else skipped. Verified: opens Google Calendar directly, no chooser.
+- [x] B.6 Second alarm silently discarded the first — AlarmService now keeps an **alarm stack**: a new alarm interrupts (silencing the old audio) but the previous one resumes when the top is snoozed/dismissed. Verified 2-deep and 3-deep: each alarm required its own dismiss; nothing lost.
+- [x] B.7 Snoozed alarms stuck with past date/time — root cause: **AlarmManager alarms do not survive a reboot**; the BOOT_COMPLETED branch was an empty no-op. Now re-arms all saved alarms on boot and on app open, reviving past-due ones (staggered) instead of leaving dead rows. Verified: after `adb reboot` with the app never opened, both alarms were re-registered with AlarmManager.
+- [x] F.4 Manage Snoozed Alarms — added the 4 snooze presets (2×2, #F1F3F4/black) + Specify Time (#5F6368); Reschedule renamed "Date & time" (#E8F5E9).
+- [x] F.5 Sound & Vibration auto-saves; Save button removed from all three sub-tabs. Verified: edited a field, value persisted with no save action.
+- [x] UI.2 Takeover restyle — background #202124, Open Calendar button lowered (all content shifted down), snooze/Specify Time/Date & Time buttons 1.5× taller with 2× borders in #F1F3F4 / #5F6368 / #E8F5E9.
+- Emulator note: tested at **America/New_York**, not UTC. The default UTC emulator cannot reproduce B.3 at all — that is why the first round missed it.
