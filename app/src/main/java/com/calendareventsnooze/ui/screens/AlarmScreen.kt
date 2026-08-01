@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -37,13 +38,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.ui.theme.AlarmBackground
-import com.calendareventsnooze.ui.theme.AlarmCalendarBlue
+import com.calendareventsnooze.ui.theme.AlarmOpenCalendar
 import com.calendareventsnooze.ui.theme.AlarmDanger
 import com.calendareventsnooze.ui.theme.AlarmDateAndTime
 import com.calendareventsnooze.ui.theme.AlarmSnoozeButton
@@ -58,6 +60,9 @@ import java.util.Calendar
 // UI.2 — buttons are 1.5x taller (was 64dp) with 2x thicker borders (was 1dp).
 private val ACTION_BUTTON_HEIGHT = 96.dp
 private val ACTION_BUTTON_BORDER = 2.dp
+// UI.3 — Specify Time / Time & Date match the old snooze font; presets are 1.5x that.
+private val SECONDARY_FONT = 18.sp
+private val PRESET_FONT = 27.sp
 
 @Composable
 fun AlarmScreen(
@@ -91,22 +96,8 @@ fun AlarmScreen(
             .padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // UI.2 — everything is pushed down so the Open Calendar button now starts
-        // where the alarm heading used to sit (old button height 56dp + 24dp gap).
+        // UI.2 — content sits lower on the screen.
         Spacer(Modifier.height(80.dp))
-
-        Button(
-            onClick = onOpenCalendar,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AlarmCalendarBlue)
-        ) {
-            Text("📅  OPEN CALENDAR EVENT", color = Color.White, fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(Modifier.height(24.dp))
 
         Text(
             "⚠  ${alarmEvent.eventTitle}",
@@ -168,7 +159,7 @@ fun AlarmScreen(
                 border = BorderStroke(ACTION_BUTTON_BORDER, AlarmTextSecondary),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AlarmSpecifyTime, contentColor = Color.White)
-            ) { Text("⏱ Specify Time", fontWeight = FontWeight.Bold) }
+            ) { Text("⏱ Specify Time", fontSize = SECONDARY_FONT, fontWeight = FontWeight.Bold) }
             Button(
                 onClick = { showTimeAndDate = true },
                 modifier = Modifier
@@ -177,8 +168,8 @@ fun AlarmScreen(
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(ACTION_BUTTON_BORDER, AlarmTextSecondary),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AlarmDateAndTime, contentColor = Color.Black)
-            ) { Text("📅 Time & Date", fontWeight = FontWeight.Bold) }
+                    containerColor = AlarmDateAndTime, contentColor = Color.White)
+            ) { Text("📅 Time & Date", fontSize = SECONDARY_FONT, fontWeight = FontWeight.Bold) }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -195,6 +186,23 @@ fun AlarmScreen(
         ) {
             Text("✕  DISMISS", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
+
+        // UI.3 — Open Calendar Event moved below Dismiss, and labelled so it is
+        // clear that taking it also resolves (dismisses) the alarm.
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = onOpenCalendar,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(72.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AlarmOpenCalendar)
+        ) {
+            Text("📅  OPEN CALENDAR EVENT",
+                color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("  (DISMISSED ALARM)", color = Color.Black, fontSize = 10.sp)
+        }
+        Spacer(Modifier.height(24.dp))
     }
 
     if (showSpecifyTime) {
@@ -234,7 +242,7 @@ private fun PresetButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = AlarmSnoozeButton, contentColor = Color.Black)
     ) {
-        Text(preset?.label ?: "—", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(preset?.label ?: "—", fontSize = PRESET_FONT, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -282,16 +290,19 @@ internal fun SpecifyTimeDialog(
         text = {
             Column {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // F.6 — digits only, so open the numeric keypad.
                     OutlinedTextField(
                         value = hours,
                         onValueChange = { hours = it.filter { c -> c.isDigit() } },
                         label = { Text("Hours") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
                         value = minutes,
                         onValueChange = { minutes = it.filter { c -> c.isDigit() } },
                         label = { Text("Minutes") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f)
                     )
                 }
