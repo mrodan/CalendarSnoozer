@@ -62,3 +62,11 @@ Legend: [ ] NOT STARTED | [~] IN PROGRESS | [x] DONE
 - [x] UI.7 First field renamed "Trigger Auto-Snooze after (seconds) — 0 to disable"; the two radios replaced by a single "Auto-Snooze ON" switch directly under the section heading.
 - [x] UI.8 Snooze Buttons laid out 1 | 2 over 3 | 4, matching the takeover screen.
 - [x] UI.9 App title bar "CALENDAR EVENT SNOOZE" in the Force Stop colour with black text, plus grey half-size "(IFYKYK)".
+
+## Feedback round 4 — build clean (0 errors, 0 warnings)
+- [x] F.7 (round 3 rework) Vibration is now five sliders instead of a comma-separated pattern field: Buzz-On Length / Buzz-Off Length (S 250, M 500, L 1000, XL 2000, XXL 3000 ms; preset M), Number of Buzzes Pattern (1–10, preset 5), Delay Between Patterns (S 500, M 1000, L 2000, XL 3000, XXL 5000 ms; preset L), Number of Pattern Repetitions (1–10, preset 5). `SoundProfile.vibrationPattern`/`vibrationRepeat` are gone; `buildVibrationWaveform()` expands the five values into the waveform. **The gap after the last buzz of a pattern IS the between-patterns delay** — a waveform strictly alternates off/on, so two off values in a row would invert the whole pattern from that point. Saved profiles migrate via nullable JSON fields.
+- [x] UI.3 Open Calendar Event: "(DISMISSED ALARM)" → "(DISMISSES ALARM)", moved onto its own centred line below the label, 10sp → 11sp.
+- [x] UI.10 Home: Force Stop button is #FF8C8A and reads "FORCE STOP APP"; the ⏹ emoji (which cannot be recoloured) is replaced by a drawn square with a red border. Permissions status ✓/⚠ moved to the right of the heading. "Test Alarm" heading left unchanged (confirmed with the user).
+- [x] UI.11 Sound & Vibration: the Home tab's overflow-only scrollbar now also draws on each sub-tab (extracted to `ui/screens/Scrollbar.kt`), and the selected sub-tab is hoisted into MainActivity so leaving the tab and returning lands on the same one.
+- [x] UI.9 "(IFYKYK)" raised from 9sp to 18sp, matching the title text.
+- Note: the title bar keeps the old lime #C6FF00; only the Force Stop *button* changed colour, as specified.

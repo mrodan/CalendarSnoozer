@@ -114,16 +114,20 @@ the wrong app. Only ever target `CALENDAR_PACKAGES`; skip the candidate
 otherwise. Android 11+ package visibility also requires the `<queries>` block
 in the manifest, or `getLaunchIntentForPackage` silently returns null.
 
-**5. `LongArray` does not round-trip through Gson.**
-`SoundProfile.vibrationPattern` is stored as `List<Long>` in a JSON mirror
-class. New fields added to `SoundProfile` must be added to `SoundProfileJson`
+**5. `SoundProfile` is persisted through a mirror class.**
+New fields added to `SoundProfile` must be added to `AppPrefs.SoundProfileJson`
 too — make them **nullable** so profiles saved before the field existed migrate
-to a sensible default instead of silently becoming 0.
+to a sensible default instead of silently becoming 0. (A `LongArray` also does
+not round-trip through Gson at all, which is one reason the vibration pattern is
+no longer stored as one.)
 
-**6. A vibration waveform plays once.**
-"Pattern Repetitions" is implemented by concatenating the pattern N times
-(leading delay dropped on repeats), not by the `repeat` index, which loops
-forever.
+**6. The vibration waveform strictly alternates off/on, and plays once.**
+`SoundProfile.buildVibrationWaveform()` expands the five F.7 sliders (buzz-on,
+buzz-off, buzzes per pattern, delay between patterns, repetitions) into
+`[0, ON, off, ON, ...]`. Two consecutive *off* values would invert every
+subsequent element, so the gap after a pattern's last buzz **is** the
+between-patterns delay — never emit both. Repetitions are concatenated into the
+array, not expressed with the vibrator's `repeat` index, which loops forever.
 
 **7. No `LazyColumn` inside a `Column` that scrolls the same direction.**
 The Home tab scrolls, so the snoozed-alarm list renders as plain rows.
@@ -166,8 +170,18 @@ Non-obvious testing facts:
   open-specific-event path cannot be verified there — it needs the real phone.
 - `uiautomator dump` + regex on the XML is more reliable than screenshots for
   assertions; use screenshots for visual checks only (they cost a lot of context).
-- The user's phone is often **locked**; screenshots come back black and the PIN
-  must never be attempted. Verify on the emulator instead.
+- **Never pipe `adb exec-out screencap -p` to a file in PowerShell** — the shell
+  re-encodes the stream and prepends a BOM, producing an unreadable PNG. Use
+  `adb shell screencap -p /sdcard/x.png` then `adb pull`.
+- Settings are readable straight from the device on a debug build:
+  `adb shell run-as com.calendareventsnooze cat
+  /data/data/com.calendareventsnooze/shared_prefs/ces_prefs.xml`. This is the
+  fastest way to prove auto-save and JSON migration actually worked.
+- The user's phone is often **locked** (screenshots come back black, and the PIN
+  must never be attempted) — but they will unlock it on request for a debugging
+  session, so ask rather than defaulting to the emulator. The emulator is a poor
+  substitute anyway: it has no calendar account, and a cold boot often throws a
+  "Pixel Launcher isn't responding" ANR over the app.
 
 Physical-device-only behaviour: vibration, real lock-screen takeover, OEM
 battery optimisation, real calendar notification interception, ringer switch.
