@@ -187,8 +187,8 @@ fun AlarmScreen(
             Text("✕  DISMISS", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
 
-        // UI.3 — Open Calendar Event moved below Dismiss, and labelled so it is
-        // clear that taking it also resolves (dismisses) the alarm.
+        // UI.3 — Open Calendar Event sits below Dismiss, with the "(DISMISSES
+        // ALARM)" caveat centred on its own line beneath the label.
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = onOpenCalendar,
@@ -198,9 +198,12 @@ fun AlarmScreen(
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = AlarmOpenCalendar)
         ) {
-            Text("📅  OPEN CALENDAR EVENT",
-                color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text("  (DISMISSED ALARM)", color = Color.Black, fontSize = 10.sp)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("📅  OPEN CALENDAR EVENT",
+                    color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("(DISMISSES ALARM)", color = Color.Black, fontSize = 11.sp,
+                    textAlign = TextAlign.Center)
+            }
         }
         Spacer(Modifier.height(24.dp))
     }
