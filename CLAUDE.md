@@ -50,7 +50,11 @@ AppPrefs (SharedPreferences + Gson) — all persistence
 ```
 
 - **MainActivity** hosts three tabs: Home / Snooze Buttons / Sound & Vibration.
-  Snoozed Alarms lives *inside* Home (UI.4), not as its own tab.
+  Snoozed Alarms lives *inside* Home (UI.4), not as its own tab, and its Manage
+  view is a `ModalBottomSheet` owned by `HomeScreen` (M3.2).
+- A `HorizontalPager` drives both the tab row and the swipe gesture, so the two
+  can't disagree. Sound & Vibration nests a second pager for its sound modes:
+  swiping there moves sub-tabs, and the primary tab row is how you leave.
 - **AlarmActivity** is a separate `singleInstance` activity for the takeover.
 - Sound settings are per **ringer mode** (SOUND_ON / VIBRATE / SILENT); the
   service picks the profile matching the phone's current ringer state.
@@ -132,18 +136,49 @@ array, not expressed with the vibrator's `repeat` index, which loops forever.
 **7. No `LazyColumn` inside a `Column` that scrolls the same direction.**
 The Home tab scrolls, so the snoozed-alarm list renders as plain rows.
 
+**8. Pager APIs still need `@OptIn` on this Compose version.**
+`HorizontalPager` / `rememberPagerState` are `@ExperimentalFoundationApi` in
+Compose 1.6 (BOM 2024.02.00) — without the opt-in the build fails with errors,
+not warnings.
+
+**9. The status bar does not follow the Compose theme on its own.**
+`Theme.kt` sets `window.statusBarColor` / `navigationBarColor` explicitly. Drop
+that and the bar reverts to the platform theme's indigo, which belongs to no
+palette here.
+
 ---
+
+## Design system (M3.1)
+
+The UI is Material Design 3 throughout. `ui/theme/` owns it:
+
+- **`Color.kt`** — the five source swatches (Lavender, PowderBlue, BlueSlate,
+  Granite, Evergreen) and the full light **and** dark M3 role sets derived from
+  them. Screens must read `MaterialTheme.colorScheme.*`, never the swatches, or
+  they break in one of the two schemes. Light: Blue Slate primary. Dark:
+  Evergreen as the ground, Powder Blue primary.
+- **`Type.kt`** — the 15-style M3 type scale in DM Sans (bundled variable font,
+  `res/font/dm_sans.ttf`, OFL in `third_party/`). Google Sans is proprietary and
+  cannot be bundled; DM Sans is the stand-in. Use `MaterialTheme.typography.*`,
+  not `fontSize =`.
+- **`Shape.kt`** — the M3 shape scale plus a 4dp-grid `Spacing` object. Use
+  `MaterialTheme.shapes.*` and `Spacing.*`; don't write raw `.dp` or
+  `RoundedCornerShape`.
+- Dynamic colour is deliberately **off** — the palette is the brand.
+- Destructive actions (Force Stop, Cancel Snooze, Dismiss) take the M3 **error**
+  roles, not an arbitrary red.
+
+The **alarm takeover is the one exception**: it keeps its own always-dark
+`Alarm*` colours instead of following the system scheme, because it fires on a
+lock screen at night and needs maximum contrast. It still uses M3 shape, type
+and spacing.
 
 ## Conventions
 
 - **Auto-save everywhere.** Settings screens have no Save buttons. The pattern
   is a `LaunchedEffect` keyed on *every* editable state value, so no control can
   bypass persistence. Follow this for any new setting.
-- Colours live in `ui/theme/Color.kt`. App palette is `App*`, alarm takeover is
-  `Alarm*`. Don't hardcode hex in screens.
-- Numeric fields use `KeyboardType.Number`; the **vibration pattern** field uses
-  `KeyboardType.Phone` because it needs commas and the number keypad has no
-  comma key.
+- Numeric fields use `KeyboardType.Number`.
 - Commit one logical change per commit so any single fix can be reverted alone.
 
 ---

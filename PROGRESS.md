@@ -70,3 +70,14 @@ Legend: [ ] NOT STARTED | [~] IN PROGRESS | [x] DONE
 - [x] UI.11 Sound & Vibration: the Home tab's overflow-only scrollbar now also draws on each sub-tab (extracted to `ui/screens/Scrollbar.kt`), and the selected sub-tab is hoisted into MainActivity so leaving the tab and returning lands on the same one.
 - [x] UI.9 "(IFYKYK)" raised from 9sp to 18sp, matching the title text.
 - Note: the title bar keeps the old lime #C6FF00; only the Force Stop *button* changed colour, as specified.
+
+## Feedback round 5 — Material Design 3 redesign
+- [x] M3.1 Whole UI rebuilt on Material Design 3. New `Color.kt` holds full light **and** dark colour schemes derived from the five-swatch palette (Lavender #C5D1EB, Powder Blue #92AFD7, Blue Slate #5A7684, Granite #395B50, Evergreen #1F2F16); the app follows the system setting. Light: Blue Slate primary, Granite secondary, near-white blue-cast neutrals. Dark: Powder Blue primary, Evergreen as the ground and card surface. Dynamic colour is deliberately off so the palette stays the brand. New `Shape.kt` adds the M3 shape scale plus a 4dp-grid `Spacing` object; screens no longer hardcode dp or hex.
+- [x] M3.1 Typography — DM Sans (bundled variable font, OFL, `third_party/DM_Sans-OFL.txt`) across the full 15-style M3 type scale. Google Sans itself is proprietary and cannot be bundled; DM Sans is the closest freely licensed match.
+- [x] M3.1 Components — `CenterAlignedTopAppBar` + `PrimaryTabRow` replace the hand-rolled title bar; `SecondaryTabRow` for the sound sub-tabs; cards, `FilledTonalButton`, `OutlinedButton`, `AssistChip` (permission status), `SingleChoiceSegmentedButtonRow` (sound-vs-vibration ordering), `ModalBottomSheet`, M3 dialogs.
+- [x] M3.1 Alarm takeover restyled to M3 shape/type/spacing but kept **always dark and high-contrast** (darkest Evergreen ground, Lavender text) rather than following the system scheme — it fires on a lock screen at night. `themes.xml` windowBackground updated to match, or the takeover flashes the old navy before Compose draws.
+- [x] M3.2 Manage snoozed alarm is now a `ModalBottomSheet` over Home instead of replacing the whole tab. `ManageSnoozeView` became `ManageSnoozeSheet` (content only; the sheet and its dismissal belong to HomeScreen).
+- [x] M3.3 Home tab's three sections (Snoozed Alarms / Test Alarm / Permissions) each sit in their own card with 24dp between them.
+- [x] M3.4 Snooze Buttons — each of the four presets is an `OutlinedCard`, so its heading and two fields read as one bounded group.
+- [x] M3.5 Swiping moves between tabs (`HorizontalPager` drives the tab row, so the two cannot disagree). On Sound & Vibration the swipe moves between the three sound modes; the primary tab row is how you leave that tab.
+- Pager APIs are still `@ExperimentalFoundationApi` on Compose 1.6 (BOM 2024.02.00) — both pagers need `@OptIn`.
