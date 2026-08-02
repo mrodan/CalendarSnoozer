@@ -4,7 +4,9 @@
            parent="Theme.MaterialComponents.DayNight.NoActionBar" />
     <style name="Theme.CalendarEventSnooze.Alarm"
            parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="android:windowBackground">#1A1A2E</item>
+        <!-- M3.1 — must match AlarmBackground in Color.kt, or the takeover
+             flashes the old colour before Compose draws. -->
+        <item name="android:windowBackground">#0D1209</item>
         <!--
           NOTE: android:windowShowWhenLocked / android:windowTurnScreenOn were
           removed here because they fail resource linking under this AGP/AAPT2
