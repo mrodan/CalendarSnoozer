@@ -10,9 +10,10 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -45,10 +47,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -63,34 +61,12 @@ import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.service.AlarmService
 import com.calendareventsnooze.ui.theme.AppButtonRegular
 import com.calendareventsnooze.ui.theme.AppButtonRegularText
-import com.calendareventsnooze.ui.theme.AppForceStop
+import com.calendareventsnooze.ui.theme.AppDanger
+import com.calendareventsnooze.ui.theme.AppForceStopButton
 import com.calendareventsnooze.ui.theme.AppForceStopText
 import com.calendareventsnooze.ui.theme.AppGreenCheck
 import com.calendareventsnooze.ui.theme.AppWarningYellow
 import com.calendareventsnooze.util.TestAlarmHelper
-
-/**
- * UI.4 — a Gmail-style scrollbar: a thumb drawn down the right edge, sized and
- * positioned from the scroll state, shown only when the content overflows.
- */
-private fun Modifier.verticalScrollbar(
-    state: ScrollState,
-    color: Color
-): Modifier = drawWithContent {
-    drawContent()
-    if (state.maxValue <= 0) return@drawWithContent
-    val viewport = size.height
-    val thumbWidth = 4.dp.toPx()
-    val thumbHeight = (viewport / (viewport + state.maxValue)) * viewport
-    val travel = viewport - thumbHeight
-    val offsetY = (state.value.toFloat() / state.maxValue) * travel
-    drawRoundRect(
-        color = color,
-        topLeft = Offset(size.width - thumbWidth, offsetY),
-        size = Size(thumbWidth, thumbHeight),
-        cornerRadius = CornerRadius(thumbWidth / 2f)
-    )
-}
 
 @Composable
 fun HomeScreen() {
@@ -154,9 +130,17 @@ fun HomeScreen() {
                 .fillMaxWidth()
                 .height(64.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = AppForceStop, contentColor = AppForceStopText)
+                containerColor = AppForceStopButton, contentColor = AppForceStopText)
         ) {
-            Text("⏹  FORCE STOP", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            // UI.10 — the ⏹ emoji can't be recoloured, so the stop symbol is
+            // drawn: a square with a red border.
+            Box(
+                Modifier
+                    .size(20.dp)
+                    .border(2.dp, AppDanger, RoundedCornerShape(3.dp))
+            )
+            Spacer(Modifier.size(10.dp))
+            Text("FORCE STOP APP", fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
 
         Spacer(Modifier.height(24.dp))
@@ -212,6 +196,9 @@ fun HomeScreen() {
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // UI.10 — status symbol sits to the right of the heading.
+                    Text("Permissions", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.size(8.dp))
                     if (allGranted) {
                         Icon(Icons.Filled.CheckCircle, contentDescription = "All granted",
                             tint = AppGreenCheck, modifier = Modifier.size(24.dp))
@@ -219,9 +206,7 @@ fun HomeScreen() {
                         Icon(Icons.Filled.Warning, contentDescription = "Permissions pending",
                             tint = AppWarningYellow, modifier = Modifier.size(24.dp))
                     }
-                    Spacer(Modifier.size(8.dp))
-                    Text("Permissions", fontSize = 20.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f))
+                    Spacer(Modifier.weight(1f))
                     Icon(
                         if (permissionsExpanded) Icons.Filled.KeyboardArrowUp
                         else Icons.Filled.KeyboardArrowDown,
