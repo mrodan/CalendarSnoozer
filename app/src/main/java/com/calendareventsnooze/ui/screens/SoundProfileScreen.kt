@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -47,10 +48,14 @@ import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SoundProfile
+import kotlin.math.roundToInt
 
+/**
+ * UI.11 — [selectedSubTab] is hoisted into MainActivity so the chosen sub-tab
+ * survives leaving the Sound & Vibration tab and coming back.
+ */
 @Composable
-fun SoundProfileScreen() {
-    var selectedSubTab by remember { mutableIntStateOf(0) }
+fun SoundProfileScreen(selectedSubTab: Int, onSubTabChange: (Int) -> Unit) {
     val modes = listOf(RingerMode.SOUND_ON, RingerMode.VIBRATE, RingerMode.SILENT)
     val titles = listOf("Sound On", "Vibrate Mode", "Silent")
 
@@ -59,19 +64,20 @@ fun SoundProfileScreen() {
     val scrollStates = listOf(
         rememberScrollState(), rememberScrollState(), rememberScrollState()
     )
+    val subTab = selectedSubTab.coerceIn(0, modes.lastIndex)
 
     Column(Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = selectedSubTab) {
+        TabRow(selectedTabIndex = subTab) {
             titles.forEachIndexed { i, t ->
-                Tab(selected = selectedSubTab == i, onClick = { selectedSubTab = i },
+                Tab(selected = subTab == i, onClick = { onSubTabChange(i) },
                     text = { Text(t, fontSize = 13.sp) })
             }
         }
         // key() ensures each sub-tab keeps its own independent state.
-        androidx.compose.runtime.key(selectedSubTab) {
+        androidx.compose.runtime.key(subTab) {
             ProfileEditor(
-                mode = modes[selectedSubTab],
-                scrollState = scrollStates[selectedSubTab]
+                mode = modes[subTab],
+                scrollState = scrollStates[subTab]
             )
         }
     }
@@ -85,11 +91,23 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     var soundEnabled by remember(mode) { mutableStateOf(initial.soundEnabled) }
     var soundUri by remember(mode) { mutableStateOf(initial.soundUri) }
     var vibrationEnabled by remember(mode) { mutableStateOf(initial.vibrationEnabled) }
-    var vibrationPattern by remember(mode) {
-        mutableStateOf(initial.vibrationPattern.joinToString(","))
+    // F.7 — the five vibration sliders. Each holds the *index* of its stop, so a
+    // stored value that isn't exactly on a stop snaps to the nearest one.
+    var buzzOnIdx by remember(mode) {
+        mutableIntStateOf(nearestIndex(SoundProfile.BUZZ_LENGTH_OPTIONS, initial.buzzOnMs))
     }
-    var vibrationRepetitions by remember(mode) {
-        mutableStateOf(initial.vibrationRepetitions.toString())
+    var buzzOffIdx by remember(mode) {
+        mutableIntStateOf(nearestIndex(SoundProfile.BUZZ_LENGTH_OPTIONS, initial.buzzOffMs))
+    }
+    var buzzesIdx by remember(mode) {
+        mutableIntStateOf(initial.buzzesPerPattern.coerceIn(1, SoundProfile.MAX_COUNT) - 1)
+    }
+    var patternDelayIdx by remember(mode) {
+        mutableIntStateOf(
+            nearestIndex(SoundProfile.PATTERN_DELAY_OPTIONS, initial.delayBetweenPatternsMs))
+    }
+    var repetitionsIdx by remember(mode) {
+        mutableIntStateOf(initial.vibrationRepetitions.coerceIn(1, SoundProfile.MAX_COUNT) - 1)
     }
     var soundStartsFirst by remember(mode) { mutableStateOf(initial.soundStartsFirst) }
     var secondDelay by remember(mode) {
@@ -125,7 +143,8 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     // button. Keying the effect on all editable state means no change can be
     // missed, whichever control produced it.
     LaunchedEffect(
-        soundEnabled, soundUri, vibrationEnabled, vibrationPattern, vibrationRepetitions,
+        soundEnabled, soundUri, vibrationEnabled, buzzOnIdx, buzzOffIdx, buzzesIdx,
+        patternDelayIdx, repetitionsIdx,
         soundStartsFirst, secondDelay, autoDismissSeconds, autoSnoozeMinutes, maxRetries,
         autoDismissAction
     ) {
@@ -136,10 +155,11 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 soundEnabled = soundEnabled,
                 soundUri = soundUri,
                 vibrationEnabled = vibrationEnabled,
-                vibrationPattern = parsePattern(vibrationPattern),
-                vibrationRepeat = initial.vibrationRepeat,
-                vibrationRepetitions = vibrationRepetitions.toIntOrNull()?.coerceAtLeast(1)
-                    ?: AppPrefs.DEFAULT_VIBRATION_REPETITIONS,
+                buzzOnMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOnIdx],
+                buzzOffMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOffIdx],
+                buzzesPerPattern = buzzesIdx + 1,
+                delayBetweenPatternsMs = SoundProfile.PATTERN_DELAY_OPTIONS[patternDelayIdx],
+                vibrationRepetitions = repetitionsIdx + 1,
                 soundStartsFirst = soundStartsFirst,
                 secondStartDelaySeconds = secondDelay.toIntOrNull() ?: 0,
                 autoDismissSeconds = autoDismissSeconds.toIntOrNull() ?: 0,
@@ -153,6 +173,10 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // UI.11 — same overflow-only scrollbar the Home tab uses.
+            .verticalScrollbar(
+                scrollState,
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
             .verticalScroll(scrollState)
             .padding(16.dp)
     ) {
@@ -186,26 +210,38 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         // 📳 VIBRATION
         SectionHeader("📳 VIBRATION")
         SwitchRow("Enable vibration", vibrationEnabled) { vibrationEnabled = it }
-        OutlinedTextField(
-            value = vibrationPattern,
-            onValueChange = { vibrationPattern = it },
-            label = { Text("Pattern (comma-separated ms)") },
-            // F.6 — numeric keypad. Phone (not Number) because the pattern needs
-            // commas, which the pure-number keypad has no key for.
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text("Format: delay,ON,off,ON — e.g. 0,500,200,500",
-            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(8.dp))
-        // F.7 — how many times the whole pattern plays.
-        OutlinedTextField(
-            value = vibrationRepetitions,
-            onValueChange = { vibrationRepetitions = it.filter { c -> c.isDigit() } },
-            label = { Text("Pattern Repetitions") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
-        )
+        Spacer(Modifier.height(12.dp))
+
+        // F.7 — five sliders replace the raw comma-separated pattern field.
+        OptionSlider(
+            title = "Buzz-On Length",
+            labels = SoundProfile.SIZE_LABELS,
+            index = buzzOnIdx
+        ) { buzzOnIdx = it }
+        Spacer(Modifier.height(12.dp))
+        OptionSlider(
+            title = "Buzz-Off Length",
+            labels = SoundProfile.SIZE_LABELS,
+            index = buzzOffIdx
+        ) { buzzOffIdx = it }
+        Spacer(Modifier.height(12.dp))
+        OptionSlider(
+            title = "Number of Buzzes Pattern",
+            labels = COUNT_LABELS,
+            index = buzzesIdx
+        ) { buzzesIdx = it }
+        Spacer(Modifier.height(12.dp))
+        OptionSlider(
+            title = "Delay Between Patterns",
+            labels = SoundProfile.SIZE_LABELS,
+            index = patternDelayIdx
+        ) { patternDelayIdx = it }
+        Spacer(Modifier.height(12.dp))
+        OptionSlider(
+            title = "Number of Pattern Repetitions",
+            labels = COUNT_LABELS,
+            index = repetitionsIdx
+        ) { repetitionsIdx = it }
 
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()
@@ -266,11 +302,57 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     }
 }
 
-private fun parsePattern(text: String): LongArray {
-    val list = text.split(",")
-        .mapNotNull { it.trim().toLongOrNull() }
-        .filter { it >= 0L }
-    return if (list.isEmpty()) longArrayOf(0, 500, 200, 500) else list.toLongArray()
+/** Slider labels for the two 1..10 counts. */
+private val COUNT_LABELS = (1..SoundProfile.MAX_COUNT).map { it.toString() }
+
+/** Index of the stop closest to [value], so off-preset stored values snap. */
+private fun nearestIndex(options: List<Int>, value: Int): Int {
+    var best = 0
+    options.forEachIndexed { i, option ->
+        if (kotlin.math.abs(option - value) < kotlin.math.abs(options[best] - value)) best = i
+    }
+    return best
+}
+
+/**
+ * F.7 — a discrete slider: title above, one label per stop below. The slider
+ * value *is* the stop index, so it can never land between options.
+ */
+@Composable
+private fun OptionSlider(
+    title: String,
+    labels: List<String>,
+    index: Int,
+    onIndexChange: (Int) -> Unit
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Slider(
+            value = index.toFloat(),
+            onValueChange = { onIndexChange(it.roundToInt().coerceIn(0, labels.lastIndex)) },
+            valueRange = 0f..labels.lastIndex.toFloat(),
+            steps = (labels.size - 2).coerceAtLeast(0),
+            modifier = Modifier.fillMaxWidth()
+        )
+        // SpaceBetween lines the labels up with the tick marks; the padding
+        // compensates for the thumb's radius at either end.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            labels.forEachIndexed { i, label ->
+                Text(
+                    label,
+                    fontSize = 12.sp,
+                    fontWeight = if (i == index) FontWeight.Bold else FontWeight.Normal,
+                    color = if (i == index) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
 }
 
 private fun soundName(uri: String?): String {

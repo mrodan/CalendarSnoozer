@@ -21,8 +21,12 @@ object AppPrefs {
 
     private val gson = Gson()
 
-    /** F.7 — default number of times a vibration pattern plays. */
-    const val DEFAULT_VIBRATION_REPETITIONS = 4
+    // F.7 — vibration defaults. These match the slider presets: M / M / 5 / L / 5.
+    const val DEFAULT_BUZZ_ON_MS = 500
+    const val DEFAULT_BUZZ_OFF_MS = 500
+    const val DEFAULT_BUZZES_PER_PATTERN = 5
+    const val DEFAULT_PATTERN_DELAY_MS = 2000
+    const val DEFAULT_VIBRATION_REPETITIONS = 5
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -56,17 +60,18 @@ object AppPrefs {
     // Sound Profiles
     // ---------------------------------------------------------------------
 
-    // JSON-safe mirror of SoundProfile — LongArray does not round-trip with Gson,
-    // so vibrationPattern is stored as List<Long>.
+    // JSON-safe mirror of SoundProfile. Every vibration field is nullable so a
+    // profile saved before F.7 restructured them migrates to the defaults
+    // instead of silently becoming 0 (see trap 5 in CLAUDE.md).
     private data class SoundProfileJson(
         val ringerMode: RingerMode,
         val soundEnabled: Boolean,
         val soundUri: String?,
         val vibrationEnabled: Boolean,
-        val vibrationPattern: List<Long>,
-        val vibrationRepeat: Int,
-        // Nullable so profiles saved before F.7 existed migrate to the default
-        // rather than silently becoming 0 repetitions.
+        val buzzOnMs: Int?,
+        val buzzOffMs: Int?,
+        val buzzesPerPattern: Int?,
+        val delayBetweenPatternsMs: Int?,
         val vibrationRepetitions: Int?,
         val soundStartsFirst: Boolean,
         val secondStartDelaySeconds: Int,
@@ -78,7 +83,8 @@ object AppPrefs {
 
     private fun SoundProfile.toJson() = SoundProfileJson(
         ringerMode, soundEnabled, soundUri, vibrationEnabled,
-        vibrationPattern.toList(), vibrationRepeat, vibrationRepetitions, soundStartsFirst,
+        buzzOnMs, buzzOffMs, buzzesPerPattern, delayBetweenPatternsMs,
+        vibrationRepetitions, soundStartsFirst,
         secondStartDelaySeconds, autoDismissSeconds, autoDismissAction,
         autoDismissSnoozeMinutes, autoDismissMaxRetries
     )
@@ -88,10 +94,14 @@ object AppPrefs {
         soundEnabled = soundEnabled,
         soundUri = soundUri,
         vibrationEnabled = vibrationEnabled,
-        vibrationPattern = vibrationPattern.toLongArray(),
-        vibrationRepeat = vibrationRepeat,
+        buzzOnMs = (buzzOnMs ?: DEFAULT_BUZZ_ON_MS).coerceAtLeast(1),
+        buzzOffMs = (buzzOffMs ?: DEFAULT_BUZZ_OFF_MS).coerceAtLeast(0),
+        buzzesPerPattern = (buzzesPerPattern ?: DEFAULT_BUZZES_PER_PATTERN)
+            .coerceIn(1, SoundProfile.MAX_COUNT),
+        delayBetweenPatternsMs = (delayBetweenPatternsMs ?: DEFAULT_PATTERN_DELAY_MS)
+            .coerceAtLeast(0),
         vibrationRepetitions = (vibrationRepetitions ?: DEFAULT_VIBRATION_REPETITIONS)
-            .coerceAtLeast(1),
+            .coerceIn(1, SoundProfile.MAX_COUNT),
         soundStartsFirst = soundStartsFirst,
         secondStartDelaySeconds = secondStartDelaySeconds,
         autoDismissSeconds = autoDismissSeconds,
@@ -106,8 +116,10 @@ object AppPrefs {
             soundEnabled = true,
             soundUri = null,
             vibrationEnabled = true,
-            vibrationPattern = longArrayOf(0, 500, 200, 500),
-            vibrationRepeat = -1,
+            buzzOnMs = DEFAULT_BUZZ_ON_MS,
+            buzzOffMs = DEFAULT_BUZZ_OFF_MS,
+            buzzesPerPattern = DEFAULT_BUZZES_PER_PATTERN,
+            delayBetweenPatternsMs = DEFAULT_PATTERN_DELAY_MS,
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
             secondStartDelaySeconds = 0,
@@ -121,8 +133,10 @@ object AppPrefs {
             soundEnabled = false,
             soundUri = null,
             vibrationEnabled = true,
-            vibrationPattern = longArrayOf(0, 700, 300, 700),
-            vibrationRepeat = -1,
+            buzzOnMs = DEFAULT_BUZZ_ON_MS,
+            buzzOffMs = DEFAULT_BUZZ_OFF_MS,
+            buzzesPerPattern = DEFAULT_BUZZES_PER_PATTERN,
+            delayBetweenPatternsMs = DEFAULT_PATTERN_DELAY_MS,
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
             secondStartDelaySeconds = 0,
@@ -136,8 +150,10 @@ object AppPrefs {
             soundEnabled = false,
             soundUri = null,
             vibrationEnabled = false,
-            vibrationPattern = longArrayOf(0, 500, 200, 500),
-            vibrationRepeat = -1,
+            buzzOnMs = DEFAULT_BUZZ_ON_MS,
+            buzzOffMs = DEFAULT_BUZZ_OFF_MS,
+            buzzesPerPattern = DEFAULT_BUZZES_PER_PATTERN,
+            delayBetweenPatternsMs = DEFAULT_PATTERN_DELAY_MS,
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
             secondStartDelaySeconds = 0,

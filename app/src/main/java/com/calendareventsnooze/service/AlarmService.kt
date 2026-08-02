@@ -53,6 +53,9 @@ class AlarmService : Service() {
         const val EXTRA_ALARM_ID = "ces_resolved_alarm_id"
         const val ACTIVE_ALARM_NOTIF_ID = 1002
 
+        /** Vibrator repeat index meaning "play the waveform once". */
+        private const val NO_REPEAT = -1
+
         fun cancelActiveAlarmNotification(context: Context) {
             context.getSystemService(NotificationManager::class.java)
                 .cancel(ACTIVE_ALARM_NOTIF_ID)
@@ -301,24 +304,15 @@ class AlarmService : Service() {
             (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
         else @Suppress("DEPRECATION") getSystemService(VIBRATOR_SERVICE) as Vibrator
 
-        // F.7 — a waveform plays once, so N repetitions means concatenating the
-        // pattern N times. The leading delay is dropped on repeats so the pattern
-        // doesn't gain a pause between cycles.
-        val base = profile.vibrationPattern
-        val times = profile.vibrationRepetitions.coerceAtLeast(1)
-        val pattern = if (times <= 1 || base.isEmpty()) base else {
-            val tail = if (base.size > 1) base.copyOfRange(1, base.size) else base
-            val out = ArrayList<Long>(base.size + tail.size * (times - 1))
-            base.forEach { out.add(it) }
-            repeat(times - 1) { tail.forEach { out.add(it) } }
-            out.toLongArray()
-        }
+        // F.7 — the buzz/pattern sliders are expanded into one finite waveform,
+        // repetitions included, so the vibrator's repeat index stays at
+        // NO_REPEAT (it would otherwise loop forever).
+        val pattern = profile.buildVibrationWaveform()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            vibrator?.vibrate(VibrationEffect.createWaveform(
-                pattern, profile.vibrationRepeat))
+            vibrator?.vibrate(VibrationEffect.createWaveform(pattern, NO_REPEAT))
         else @Suppress("DEPRECATION")
-            vibrator?.vibrate(pattern, profile.vibrationRepeat)
+            vibrator?.vibrate(pattern, NO_REPEAT)
     }
 
     private fun stopSoundAndVibration() {
