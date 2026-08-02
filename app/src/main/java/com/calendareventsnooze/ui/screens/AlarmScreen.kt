@@ -11,16 +11,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,22 +43,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.ui.theme.AlarmBackground
-import com.calendareventsnooze.ui.theme.AlarmOpenCalendar
+import com.calendareventsnooze.ui.theme.AlarmCalendar
 import com.calendareventsnooze.ui.theme.AlarmDanger
-import com.calendareventsnooze.ui.theme.AlarmDateAndTime
-import com.calendareventsnooze.ui.theme.AlarmSnoozeButton
-import com.calendareventsnooze.ui.theme.AlarmSpecifyTime
-import com.calendareventsnooze.ui.theme.AlarmTextPrimary
-import com.calendareventsnooze.ui.theme.AlarmTextSecondary
+import com.calendareventsnooze.ui.theme.AlarmOnCalendar
+import com.calendareventsnooze.ui.theme.AlarmOnDanger
+import com.calendareventsnooze.ui.theme.AlarmOnPrimary
+import com.calendareventsnooze.ui.theme.AlarmOnSecondary
+import com.calendareventsnooze.ui.theme.AlarmOnSurface
+import com.calendareventsnooze.ui.theme.AlarmOnSurfaceMuted
+import com.calendareventsnooze.ui.theme.AlarmOutline
+import com.calendareventsnooze.ui.theme.AlarmPrimary
+import com.calendareventsnooze.ui.theme.AlarmSecondary
+import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.combineDateAndTime
 import com.calendareventsnooze.util.formatEventTime
 import kotlinx.coroutines.delay
@@ -60,10 +70,13 @@ import java.util.Calendar
 // UI.2 — buttons are 1.5x taller (was 64dp) with 2x thicker borders (was 1dp).
 private val ACTION_BUTTON_HEIGHT = 96.dp
 private val ACTION_BUTTON_BORDER = 2.dp
-// UI.3 — Specify Time / Time & Date match the old snooze font; presets are 1.5x that.
-private val SECONDARY_FONT = 18.sp
-private val PRESET_FONT = 27.sp
 
+/**
+ * M3.1 — the takeover follows Material 3 shape, spacing and type, but keeps its
+ * own always-dark colours rather than the app's light/dark scheme. It fires on
+ * a lock screen in the middle of the night, so it uses the highest-contrast
+ * pairing in the palette regardless of the system setting.
+ */
 @Composable
 fun AlarmScreen(
     alarmEvent: AlarmEvent,
@@ -93,119 +106,141 @@ fun AlarmScreen(
             .fillMaxSize()
             .background(AlarmBackground)
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
+            .padding(Spacing.xl),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // UI.2 — content sits lower on the screen.
         Spacer(Modifier.height(80.dp))
 
         Text(
-            "⚠  ${alarmEvent.eventTitle}",
-            color = AlarmTextPrimary,
-            fontSize = 24.sp,
+            alarmEvent.eventTitle,
+            color = AlarmOnSurface,
+            style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
         )
 
         formatEventTime(alarmEvent.eventTimeMs)?.let { timeStr ->
-            Spacer(Modifier.height(6.dp))
-            Text(timeStr, color = AlarmTextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(Spacing.sm))
+            Text(
+                timeStr,
+                color = AlarmOnSurfaceMuted,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center
+            )
         }
 
         if (alarmEvent.eventText.isNotBlank()) {
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(Spacing.xs))
             Text(
                 alarmEvent.eventText,
-                color = AlarmTextSecondary,
-                fontSize = 16.sp,
+                color = AlarmOnSurfaceMuted,
+                style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center
             )
         }
 
         if (autoDismissSeconds > 0) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(Spacing.md))
             Text(
                 "Auto-dismiss in ${secondsLeft}s",
                 color = AlarmDanger,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.labelLarge,
                 textAlign = TextAlign.Center
             )
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(Spacing.xl))
         SectionDivider("SNOOZE")
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(Spacing.lg))
 
         // Preset buttons in a 2-column grid
         val safePresets = presets.take(4)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             PresetButton(safePresets.getOrNull(0), Modifier.weight(1f), onSnooze)
             PresetButton(safePresets.getOrNull(1), Modifier.weight(1f), onSnooze)
         }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Spacer(Modifier.height(Spacing.md))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             PresetButton(safePresets.getOrNull(2), Modifier.weight(1f), onSnooze)
             PresetButton(safePresets.getOrNull(3), Modifier.weight(1f), onSnooze)
         }
 
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Spacer(Modifier.height(Spacing.md))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             Button(
                 onClick = { showSpecifyTime = true },
                 modifier = Modifier
                     .weight(1f)
                     .height(ACTION_BUTTON_HEIGHT),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmTextSecondary),
+                shape = MaterialTheme.shapes.large,
+                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmOutline),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AlarmSpecifyTime, contentColor = Color.White)
-            ) { Text("⏱ Specify Time", fontSize = SECONDARY_FONT, fontWeight = FontWeight.Bold) }
+                    containerColor = AlarmSecondary, contentColor = AlarmOnSecondary)
+            ) {
+                Icon(Icons.Outlined.Schedule, contentDescription = null,
+                    modifier = Modifier.size(20.dp))
+                Spacer(Modifier.size(Spacing.sm))
+                Text("Specify Time", style = MaterialTheme.typography.titleMedium)
+            }
             Button(
                 onClick = { showTimeAndDate = true },
                 modifier = Modifier
                     .weight(1f)
                     .height(ACTION_BUTTON_HEIGHT),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmTextSecondary),
+                shape = MaterialTheme.shapes.large,
+                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmOutline),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AlarmDateAndTime, contentColor = Color.White)
-            ) { Text("📅 Time & Date", fontSize = SECONDARY_FONT, fontWeight = FontWeight.Bold) }
+                    containerColor = AlarmSecondary, contentColor = AlarmOnSecondary)
+            ) {
+                Icon(Icons.Outlined.CalendarMonth, contentDescription = null,
+                    modifier = Modifier.size(20.dp))
+                Spacer(Modifier.size(Spacing.sm))
+                Text("Time & Date", style = MaterialTheme.typography.titleMedium)
+            }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(Spacing.xl))
         SectionDivider("")
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(Spacing.lg))
 
         Button(
             onClick = onDismiss,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(72.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AlarmDanger)
+            shape = MaterialTheme.shapes.large,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = AlarmDanger, contentColor = AlarmOnDanger)
         ) {
-            Text("✕  DISMISS", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.size(Spacing.sm))
+            Text("DISMISS", style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold)
         }
 
         // UI.3 — Open Calendar Event sits below Dismiss, with the "(DISMISSES
         // ALARM)" caveat centred on its own line beneath the label.
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(Spacing.lg))
         Button(
             onClick = onOpenCalendar,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(72.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AlarmOpenCalendar)
+            shape = MaterialTheme.shapes.large,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = AlarmCalendar, contentColor = AlarmOnCalendar)
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("📅  OPEN CALENDAR EVENT",
-                    color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text("(DISMISSES ALARM)", color = Color.Black, fontSize = 11.sp,
+                Text("OPEN CALENDAR EVENT",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold)
+                Text("(DISMISSES ALARM)",
+                    style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Center)
             }
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.xl))
     }
 
     if (showSpecifyTime) {
@@ -235,17 +270,25 @@ private fun PresetButton(
     modifier: Modifier,
     onSnooze: (Long) -> Unit
 ) {
-    // UI.2 — light background with black text.
     Button(
         onClick = { preset?.let { onSnooze(System.currentTimeMillis() + it.minutes * 60_000L) } },
         enabled = preset != null,
         modifier = modifier.height(ACTION_BUTTON_HEIGHT),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(ACTION_BUTTON_BORDER, AlarmTextSecondary),
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(ACTION_BUTTON_BORDER, AlarmOutline),
         colors = ButtonDefaults.buttonColors(
-            containerColor = AlarmSnoozeButton, contentColor = Color.Black)
+            containerColor = AlarmPrimary,
+            contentColor = AlarmOnPrimary,
+            disabledContainerColor = AlarmSecondary,
+            disabledContentColor = AlarmOnSurfaceMuted
+        )
     ) {
-        Text(preset?.label ?: "—", fontSize = PRESET_FONT, fontWeight = FontWeight.Bold)
+        Text(
+            preset?.label ?: "—",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -260,26 +303,25 @@ private fun SectionDivider(label: String) {
             Modifier
                 .weight(1f)
                 .height(1.dp)
-                .background(AlarmTextSecondary)
+                .background(AlarmOutline)
         )
         if (label.isNotEmpty()) {
             Text(
                 "  $label  ",
-                color = AlarmTextSecondary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
+                color = AlarmOnSurfaceMuted,
+                style = MaterialTheme.typography.labelLarge
             )
             Box(
                 Modifier
                     .weight(1f)
                     .height(1.dp)
-                    .background(AlarmTextSecondary)
+                    .background(AlarmOutline)
             )
         }
     }
 }
 
-/** Shared with the Snoozed Alarms "Manage" view (F.4). */
+/** Shared with the Snoozed Alarms "Manage" sheet (F.4). */
 @Composable
 internal fun SpecifyTimeDialog(
     onDismiss: () -> Unit,
@@ -289,26 +331,29 @@ internal fun SpecifyTimeDialog(
     var minutes by remember { mutableStateOf("10") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Specify Snooze Time") },
+        shape = MaterialTheme.shapes.extraLarge,
+        title = { Text("Specify snooze time") },
         text = {
-            Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // F.6 — digits only, so open the numeric keypad.
-                    OutlinedTextField(
-                        value = hours,
-                        onValueChange = { hours = it.filter { c -> c.isDigit() } },
-                        label = { Text("Hours") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = minutes,
-                        onValueChange = { minutes = it.filter { c -> c.isDigit() } },
-                        label = { Text("Minutes") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                // F.6 — digits only, so open the numeric keypad.
+                OutlinedTextField(
+                    value = hours,
+                    onValueChange = { hours = it.filter { c -> c.isDigit() } },
+                    label = { Text("Hours") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = minutes,
+                    onValueChange = { minutes = it.filter { c -> c.isDigit() } },
+                    label = { Text("Minutes") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f)
+                )
             }
         },
         confirmButton = {
@@ -324,7 +369,7 @@ internal fun SpecifyTimeDialog(
 }
 
 /**
- * Time-then-date snooze picker. Shared with the Snoozed Alarms "Manage" view so
+ * Time-then-date snooze picker. Shared with the Snoozed Alarms "Manage" sheet so
  * the UTC date handling (B.3) has a single implementation (B.4).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -355,7 +400,8 @@ internal fun TimeAndDateDialog(
     if (!pickingDate) {
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Pick Time") },
+            shape = MaterialTheme.shapes.extraLarge,
+            title = { Text("Pick time") },
             text = { TimePicker(state = timeState) },
             confirmButton = { TextButton(onClick = { pickingDate = true }) { Text("Next") } },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
@@ -363,6 +409,7 @@ internal fun TimeAndDateDialog(
     } else {
         DatePickerDialog(
             onDismissRequest = onDismiss,
+            shape = MaterialTheme.shapes.extraLarge,
             confirmButton = {
                 TextButton(onClick = {
                     val dateMs = dateState.selectedDateMillis
