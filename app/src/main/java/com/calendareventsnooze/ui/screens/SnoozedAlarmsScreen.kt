@@ -4,18 +4,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,24 +31,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.scheduler.AlarmScheduler
-import com.calendareventsnooze.ui.theme.AppButtonRegular
-import com.calendareventsnooze.ui.theme.AppButtonRegularText
-import com.calendareventsnooze.ui.theme.AppTopBar
+import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.formatScheduledTime
 
-// F.4 — every action button in the Manage view shares one height.
+// F.4 — every action button in the Manage sheet shares one height.
 private val MANAGE_BUTTON_HEIGHT = 56.dp
-private val PRESET_BACKGROUND = Color(0xFFF1F3F4)
 
 /**
  * UI.4 — the snoozed-alarm list, rendered as plain rows so it can live inside
@@ -54,46 +55,53 @@ fun SnoozedAlarmsSection(
     alarms: List<SnoozedAlarmRecord>,
     onManage: (SnoozedAlarmRecord) -> Unit
 ) {
-    Text("Snoozed Alarms", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-    Spacer(Modifier.height(8.dp))
-
     if (alarms.isEmpty()) {
-        Text("No Snoozed Alarms",
-            fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else {
-        alarms.forEach { record ->
-            Card(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(record.eventTitle, fontWeight = FontWeight.Bold)
-                        Text(formatScheduledTime(record.scheduledTimeMs),
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Button(
-                        onClick = { onManage(record) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = AppButtonRegular,
-                            contentColor = AppButtonRegularText)
-                    ) { Text("Manage") }
-                }
+        Text(
+            "No snoozed alarms",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+
+    alarms.forEachIndexed { index, record ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    record.eventTitle,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    formatScheduledTime(record.scheduledTimeMs),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
+            Spacer(Modifier.size(Spacing.md))
+            FilledTonalButton(onClick = { onManage(record) }) {
+                Text("Manage", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+        if (index != alarms.lastIndex) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
 
+/**
+ * M3.1 — the contents of the Manage modal bottom sheet. The sheet itself (and
+ * its dismissal) is owned by HomeScreen; this is only the body.
+ */
 @Composable
-fun ManageSnoozeView(
+fun ManageSnoozeSheet(
     record: SnoozedAlarmRecord,
     onDone: () -> Unit
 ) {
@@ -104,7 +112,7 @@ fun ManageSnoozeView(
 
     val presets = remember { AppPrefs.getSnoozePresets(context).take(4) }
 
-    /** Re-arms this alarm for [newTimeMs] and returns to the list. */
+    /** Re-arms this alarm for [newTimeMs] and closes the sheet. */
     fun rescheduleTo(newTimeMs: Long) {
         val event = AlarmEvent(
             alarmId = record.alarmId,
@@ -121,66 +129,97 @@ fun ManageSnoozeView(
 
     Column(
         modifier = Modifier
-            .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+            .padding(horizontal = Spacing.xl)
+            .padding(bottom = Spacing.xl)
     ) {
-        Text(record.eventTitle, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(record.eventTitle, style = MaterialTheme.typography.headlineSmall)
         if (record.eventText.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text(record.eventText, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                record.eventText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-        Spacer(Modifier.height(12.dp))
-        Text("Currently snoozed until: ${formatScheduledTime(record.scheduledTimeMs)}")
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.md))
+        Surface(
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        ) {
+            Text(
+                "Snoozed until ${formatScheduledTime(record.scheduledTimeMs)}",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm)
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+        Text(
+            "Snooze again",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(Spacing.md))
 
         // F.4 — the four snooze presets, two per row.
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             PresetSnoozeButton(presets.getOrNull(0), Modifier.weight(1f), ::rescheduleTo)
             PresetSnoozeButton(presets.getOrNull(1), Modifier.weight(1f), ::rescheduleTo)
         }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Spacer(Modifier.height(Spacing.md))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             PresetSnoozeButton(presets.getOrNull(2), Modifier.weight(1f), ::rescheduleTo)
             PresetSnoozeButton(presets.getOrNull(3), Modifier.weight(1f), ::rescheduleTo)
         }
 
-        Spacer(Modifier.height(12.dp))
-        Button(
-            onClick = { showSpecifyTime = true },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(MANAGE_BUTTON_HEIGHT),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = AppTopBar, contentColor = Color.White)
-        ) { Text("⏱ Specify Time", fontWeight = FontWeight.Bold) }
+        Spacer(Modifier.height(Spacing.md))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            OutlinedButton(
+                onClick = { showSpecifyTime = true },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(MANAGE_BUTTON_HEIGHT),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Icon(Icons.Outlined.Schedule, contentDescription = null,
+                    modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(Spacing.sm))
+                Text("Specify time", style = MaterialTheme.typography.labelLarge)
+            }
+            OutlinedButton(
+                onClick = { showReschedule = true },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(MANAGE_BUTTON_HEIGHT),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Icon(Icons.Outlined.CalendarMonth, contentDescription = null,
+                    modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(Spacing.sm))
+                Text("Date & time", style = MaterialTheme.typography.labelLarge)
+            }
+        }
 
-        Spacer(Modifier.height(12.dp))
-        Button(
-            onClick = { showReschedule = true },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(MANAGE_BUTTON_HEIGHT),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = AppButtonRegular, contentColor = AppButtonRegularText)
-        ) { Text("📅 Date & time", fontWeight = FontWeight.Bold) }
-
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(Spacing.xl))
         Button(
             onClick = { showCancelConfirm = true },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(MANAGE_BUTTON_HEIGHT),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC0392B))
-        ) { Text("Cancel Snooze", color = Color.White, fontWeight = FontWeight.Bold) }
+            shape = MaterialTheme.shapes.large,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            )
+        ) { Text("Cancel snooze", style = MaterialTheme.typography.labelLarge) }
 
-        Spacer(Modifier.height(12.dp))
-        TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Back") }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(Spacing.sm))
+        TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
+            Text("Close", style = MaterialTheme.typography.labelLarge)
+        }
     }
 
     if (showSpecifyTime) {
@@ -208,7 +247,7 @@ fun ManageSnoozeView(
     if (showCancelConfirm) {
         AlertDialog(
             onDismissRequest = { showCancelConfirm = false },
-            title = { Text("Cancel Snooze") },
+            title = { Text("Cancel snooze") },
             text = { Text("Cancel this alarm? The event will not remind you again.") },
             confirmButton = {
                 TextButton(onClick = {
@@ -231,16 +270,14 @@ private fun PresetSnoozeButton(
     modifier: Modifier,
     onReschedule: (Long) -> Unit
 ) {
-    Button(
+    FilledTonalButton(
         onClick = {
             preset?.let { onReschedule(System.currentTimeMillis() + it.minutes * 60_000L) }
         },
         enabled = preset != null,
         modifier = modifier.height(MANAGE_BUTTON_HEIGHT),
-        shape = RoundedCornerShape(12.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = PRESET_BACKGROUND, contentColor = Color.Black)
+        shape = MaterialTheme.shapes.large
     ) {
-        Text(preset?.label ?: "—", fontWeight = FontWeight.Bold)
+        Text(preset?.label ?: "—", style = MaterialTheme.typography.labelLarge)
     }
 }

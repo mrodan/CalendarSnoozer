@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,22 +24,30 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.ScreenLockPortrait
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,27 +56,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.service.AlarmService
-import com.calendareventsnooze.ui.theme.AppButtonRegular
-import com.calendareventsnooze.ui.theme.AppButtonRegularText
-import com.calendareventsnooze.ui.theme.AppDanger
-import com.calendareventsnooze.ui.theme.AppForceStopButton
-import com.calendareventsnooze.ui.theme.AppForceStopText
-import com.calendareventsnooze.ui.theme.AppGreenCheck
-import com.calendareventsnooze.ui.theme.AppWarningYellow
+import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.TestAlarmHelper
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
@@ -78,15 +79,6 @@ fun HomeScreen() {
 
     var managing by remember { mutableStateOf<SnoozedAlarmRecord?>(null) }
     val alarms = remember(refreshKey) { AppPrefs.getAllSnoozedAlarms(context) }
-
-    val current = managing
-    if (current != null) {
-        ManageSnoozeView(
-            record = current,
-            onDone = { managing = null; refreshKey++ }
-        )
-        return
-    }
 
     val notificationAccess = remember(refreshKey) { hasNotificationAccess(context) }
     val overlay = remember(refreshKey) { Settings.canDrawOverlays(context) }
@@ -109,16 +101,20 @@ fun HomeScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScrollbar(scrollState, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+            .verticalScrollbar(scrollState, MaterialTheme.colorScheme.outlineVariant)
             .verticalScroll(scrollState)
-            .padding(16.dp)
+            .padding(horizontal = Spacing.lg, vertical = Spacing.lg)
     ) {
-        // ---- Snoozed Alarms (UI.4) ----
-        SnoozedAlarmsSection(alarms = alarms, onManage = { managing = it })
+        // ---- Section 1: Snoozed Alarms (UI.4) ----
+        SectionCard(title = "Snoozed Alarms") {
+            SnoozedAlarmsSection(alarms = alarms, onManage = { managing = it })
+        }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.xl))
 
         // ---- Force Stop ----
+        // M3: a destructive action takes the error role rather than an arbitrary
+        // red, so it stays legible in both schemes.
         Button(
             onClick = {
                 // Emergency: silence any alarm, clear notifications, then hard-reset
@@ -129,94 +125,105 @@ fun HomeScreen() {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp),
+            shape = MaterialTheme.shapes.large,
             colors = ButtonDefaults.buttonColors(
-                containerColor = AppForceStopButton, contentColor = AppForceStopText)
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            )
         ) {
-            // UI.10 — the ⏹ emoji can't be recoloured, so the stop symbol is
-            // drawn: a square with a red border.
+            // UI.10 — the stop glyph is drawn, not an emoji, so it can be red.
             Box(
                 Modifier
                     .size(20.dp)
-                    .border(2.dp, AppDanger, RoundedCornerShape(3.dp))
+                    .border(2.dp, MaterialTheme.colorScheme.error, MaterialTheme.shapes.extraSmall)
             )
-            Spacer(Modifier.size(10.dp))
-            Text("FORCE STOP APP", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.size(Spacing.md))
+            Text("FORCE STOP APP", style = MaterialTheme.typography.titleMedium)
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.xl))
 
-        // ---- Test Alarm ----
-        Text("Test Alarm", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                // UI.5 — matches the lock-screen test button.
-                Button(
-                    onClick = {
-                        if (Settings.canDrawOverlays(context)) {
-                            TestAlarmHelper.fireTestAlarmNow(context)
-                        } else showOverlayDialog = true
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AppButtonRegular, contentColor = AppButtonRegularText)
-                ) { Text("🔔  FIRE TEST ALARM NOW", fontWeight = FontWeight.Bold) }
+        // ---- Section 2: Test Alarm ----
+        SectionCard(title = "Test Alarm") {
+            FilledTonalButton(
+                onClick = {
+                    if (Settings.canDrawOverlays(context)) {
+                        TestAlarmHelper.fireTestAlarmNow(context)
+                    } else showOverlayDialog = true
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Icon(Icons.Outlined.NotificationsActive, contentDescription = null,
+                    modifier = Modifier.size(20.dp))
+                Spacer(Modifier.size(Spacing.sm))
+                Text("Fire test alarm now", style = MaterialTheme.typography.labelLarge)
+            }
 
-                Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Spacing.md))
 
-                Button(
-                    onClick = {
-                        if (Settings.canDrawOverlays(context)) {
-                            TestAlarmHelper.fireTestAlarmDelayed(context, 5)
-                        } else showOverlayDialog = true
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AppButtonRegular, contentColor = AppButtonRegularText)
-                ) { Text("🔒  TEST ON LOCK SCREEN (+5 sec)", fontWeight = FontWeight.Bold) }
+            FilledTonalButton(
+                onClick = {
+                    if (Settings.canDrawOverlays(context)) {
+                        TestAlarmHelper.fireTestAlarmDelayed(context, 5)
+                    } else showOverlayDialog = true
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = MaterialTheme.shapes.large
+            ) {
+                Icon(Icons.Outlined.ScreenLockPortrait, contentDescription = null,
+                    modifier = Modifier.size(20.dp))
+                Spacer(Modifier.size(Spacing.sm))
+                Text("Test on lock screen (+5 sec)",
+                    style = MaterialTheme.typography.labelLarge)
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.xl))
 
-        // ---- Permissions (collapsible) ----
+        // ---- Section 3: Permissions (collapsible) ----
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
-            Column(Modifier.padding(4.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { permissionsExpanded = !permissionsExpanded }
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // UI.10 — status symbol sits to the right of the heading.
-                    Text("Permissions", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.size(8.dp))
-                    if (allGranted) {
-                        Icon(Icons.Filled.CheckCircle, contentDescription = "All granted",
-                            tint = AppGreenCheck, modifier = Modifier.size(24.dp))
-                    } else {
-                        Icon(Icons.Filled.Warning, contentDescription = "Permissions pending",
-                            tint = AppWarningYellow, modifier = Modifier.size(24.dp))
-                    }
-                    Spacer(Modifier.weight(1f))
-                    Icon(
-                        if (permissionsExpanded) Icons.Filled.KeyboardArrowUp
-                        else Icons.Filled.KeyboardArrowDown,
-                        contentDescription = if (permissionsExpanded) "Collapse" else "Expand",
-                        modifier = Modifier.size(28.dp)
-                    )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { permissionsExpanded = !permissionsExpanded }
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.lg),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // UI.10 — status symbol sits to the right of the heading.
+                Text("Permissions", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.size(Spacing.sm))
+                if (allGranted) {
+                    Icon(Icons.Filled.CheckCircle, contentDescription = "All granted",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(20.dp))
+                } else {
+                    Icon(Icons.Filled.Warning, contentDescription = "Permissions pending",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp))
                 }
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    if (permissionsExpanded) Icons.Filled.KeyboardArrowUp
+                    else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (permissionsExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
-                if (permissionsExpanded) {
-                    Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            AnimatedVisibility(visible = permissionsExpanded) {
+                Column {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Column(Modifier.padding(Spacing.lg)) {
                         PermissionRow(
                             name = "Notification Access",
                             description = "Allows intercepting calendar notifications",
@@ -251,17 +258,34 @@ fun HomeScreen() {
                         PermissionRow(
                             name = "Read Calendar",
                             description = "Lets the app open the correct calendar event",
-                            granted = readCalendar
+                            granted = readCalendar,
+                            isLast = true
                         ) {
                             calendarPermLauncher.launch(Manifest.permission.READ_CALENDAR)
                         }
-                        Spacer(Modifier.height(4.dp))
                     }
                 }
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.xl))
+    }
+
+    // M3.1 — Manage opens as a modal bottom sheet over Home rather than
+    // replacing the whole tab.
+    val record = managing
+    if (record != null) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { managing = null; refreshKey++ },
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
+            ManageSnoozeSheet(
+                record = record,
+                onDone = { managing = null; refreshKey++ }
+            )
+        }
     }
 
     if (showOverlayDialog) {
@@ -286,39 +310,77 @@ fun HomeScreen() {
     }
 }
 
+/**
+ * M3.1 — one container per top-level section of the Home tab, so Snoozed
+ * Alarms / Test Alarm / Permissions read as three distinct blocks instead of
+ * one continuous column.
+ */
+@Composable
+private fun SectionCard(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(Modifier.padding(Spacing.lg)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(Spacing.md))
+            content()
+        }
+    }
+}
+
 @Composable
 private fun PermissionRow(
     name: String,
     description: String,
     granted: Boolean,
+    isLast: Boolean = false,
     onGrant: () -> Unit
 ) {
-    Card(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .then(if (!granted) Modifier.clickable { onGrant() } else Modifier),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.background)
+            .then(if (!granted) Modifier.clickable { onGrant() } else Modifier)
+            .padding(vertical = Spacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(name, fontWeight = FontWeight.Bold)
-                Text(description, fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (granted) {
-                Text("✓ Granted", color = AppGreenCheck, fontWeight = FontWeight.Bold)
-            } else {
-                Text("✗ Required", color = Color(0xFFC0392B), fontWeight = FontWeight.Bold)
-            }
+        Column(Modifier.weight(1f)) {
+            Text(name, style = MaterialTheme.typography.bodyLarge)
+            Text(description, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        Spacer(Modifier.size(Spacing.sm))
+        if (granted) {
+            AssistChip(
+                onClick = {},
+                enabled = false,
+                label = { Text("Granted", style = MaterialTheme.typography.labelMedium) },
+                colors = AssistChipDefaults.assistChipColors(
+                    disabledLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    disabledContainerColor = MaterialTheme.colorScheme.secondaryContainer
+                ),
+                border = null
+            )
+        } else {
+            AssistChip(
+                onClick = onGrant,
+                label = { Text("Grant", style = MaterialTheme.typography.labelMedium) },
+                colors = AssistChipDefaults.assistChipColors(
+                    labelColor = MaterialTheme.colorScheme.onErrorContainer,
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                ),
+                border = null
+            )
+        }
+    }
+    if (!isLast) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
