@@ -11,22 +11,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.SnoozePreset
+import com.calendareventsnooze.ui.theme.Spacing
 
 @Composable
 fun SnoozePresetsScreen() {
@@ -54,34 +55,47 @@ fun SnoozePresetsScreen() {
         )
     }
 
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+            .verticalScrollbar(scrollState, MaterialTheme.colorScheme.outlineVariant)
+            .verticalScroll(scrollState)
+            .padding(Spacing.lg)
     ) {
-        Text("Changes are saved automatically.",
-            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(12.dp))
+        Text(
+            "Changes are saved automatically.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(Spacing.md))
 
         // UI.8 — laid out 1 | 2 over 3 | 4, matching the alarm takeover screen.
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             PresetCard(0, presets, Modifier.weight(1f))
             PresetCard(1, presets, Modifier.weight(1f))
         }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Spacer(Modifier.height(Spacing.md))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             PresetCard(2, presets, Modifier.weight(1f))
             PresetCard(3, presets, Modifier.weight(1f))
         }
 
-        Spacer(Modifier.height(16.dp))
-        Text("60 = 1 hour  |  1440 = 1 day  |  10080 = 1 week",
-            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.lg))
+        Text(
+            "60 = 1 hour  ·  1440 = 1 day  ·  10080 = 1 week",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(Spacing.xl))
     }
 }
 
+/**
+ * M3.2 — each preset is an outlined card, so its heading and the two fields
+ * that belong to it read as one bounded group.
+ */
 @Composable
 private fun PresetCard(
     index: Int,
@@ -89,20 +103,36 @@ private fun PresetCard(
     modifier: Modifier
 ) {
     val draft = presets[index]
-    Card(modifier = modifier) {
-        Column(Modifier.padding(12.dp)) {
-            Text("Button ${index + 1}",
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(8.dp))
+    OutlinedCard(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(
+            modifier = Modifier.padding(Spacing.md),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                "Button ${index + 1}",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(Spacing.sm))
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+            Spacer(Modifier.height(Spacing.md))
             OutlinedTextField(
                 value = draft.label,
                 onValueChange = { presets[index] = draft.copy(label = it) },
                 label = { Text("Label") },
                 singleLine = true,
+                shape = MaterialTheme.shapes.small,
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
             OutlinedTextField(
                 value = draft.minutes,
                 onValueChange = {
@@ -110,6 +140,7 @@ private fun PresetCard(
                 },
                 label = { Text("Minutes") },
                 singleLine = true,
+                shape = MaterialTheme.shapes.small,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
