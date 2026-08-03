@@ -11,6 +11,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +45,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -55,8 +57,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -68,11 +72,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.service.AlarmService
-import com.calendareventsnooze.ui.theme.LightError
-import com.calendareventsnooze.ui.theme.LightErrorContainer
-import com.calendareventsnooze.ui.theme.LightOnErrorContainer
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.TestAlarmHelper
+import kotlin.math.sqrt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -163,8 +165,9 @@ fun HomeScreen() {
 
         Spacer(Modifier.height(Spacing.xl))
 
-        // ---- Force Stop (UI.12 — below Test Alarm, half width, left aligned) ----
+        // ---- Force Stop (UI.13 — below Test Alarm, half width, centred) ----
         ForceStopButton(
+            modifier = Modifier.align(Alignment.CenterHorizontally),
             onForceStop = {
                 // Emergency: silence any alarm, clear notifications, then hard-reset
                 // the app process so nothing stuck can keep sounding.
@@ -301,22 +304,30 @@ fun HomeScreen() {
 }
 
 /**
- * UI.12 — Force Stop keeps the light scheme's error colours in **both** themes.
- * It is the one control the user reaches for in a panic, so it should look
- * identical whatever the phone's theme is doing.
+ * UI.13 — outline only, no fill, so the page background shows through.
+ *
+ * Losing the fill also forced the colour off UI.12's fixed light-scheme pin:
+ * that content colour is near-black (#410002), which was only legible because
+ * it sat on a pale pink container. Against the dark scheme's background it
+ * measures about 1.06:1 — invisible. Border and label therefore take the M3
+ * error role, which adapts per scheme.
  */
 @Composable
-private fun ForceStopButton(onForceStop: () -> Unit) {
-    Button(
+private fun ForceStopButton(
+    modifier: Modifier = Modifier,
+    onForceStop: () -> Unit
+) {
+    OutlinedButton(
         onClick = onForceStop,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth(0.5f)
             .height(52.dp), // 80% of the old 64dp
         shape = MaterialTheme.shapes.large,
         contentPadding = PaddingValues(horizontal = Spacing.md),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = LightErrorContainer,
-            contentColor = LightOnErrorContainer
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.error
         )
     ) {
         StopWithCrossIcon()
@@ -331,24 +342,33 @@ private fun ForceStopButton(onForceStop: () -> Unit) {
 }
 
 /**
- * UI.12 — a square outline with an X whose arms run corner to corner, drawn at
- * the same stroke width as the border. Emoji can't be recoloured and no Material
- * icon matches, so it is drawn.
+ * UI.13 — a rounded square with an X across it. Emoji can't be recoloured and
+ * no Material icon matches, so it is drawn.
+ *
+ * The arms stop where the corner arc begins rather than at the square's
+ * geometric corner: on a rounded rect the corner point sits *outside* the
+ * outline, so running the diagonals all the way would poke past it. For a 45°
+ * diagonal that offset is `r * (1 - 1/√2)` on each axis.
  */
 @Composable
 private fun StopWithCrossIcon() {
+    val color = MaterialTheme.colorScheme.error
     Canvas(Modifier.size(16.dp)) { // 80% of the old 20dp
-        val stroke = 2.dp.toPx()
+        val stroke = 1.5.dp.toPx() // 25% thinner than the old 2dp
         val inset = stroke / 2f
         val far = size.width - inset
-        drawRect(
-            color = LightError,
+        val radius = 4.dp.toPx()
+        val arc = radius * (1f - 1f / sqrt(2f))
+
+        drawRoundRect(
+            color = color,
             topLeft = Offset(inset, inset),
             size = Size(size.width - stroke, size.height - stroke),
+            cornerRadius = CornerRadius(radius),
             style = Stroke(width = stroke)
         )
-        drawLine(LightError, Offset(inset, inset), Offset(far, far), stroke)
-        drawLine(LightError, Offset(far, inset), Offset(inset, far), stroke)
+        drawLine(color, Offset(inset + arc, inset + arc), Offset(far - arc, far - arc), stroke)
+        drawLine(color, Offset(far - arc, inset + arc), Offset(inset + arc, far - arc), stroke)
     }
 }
 
