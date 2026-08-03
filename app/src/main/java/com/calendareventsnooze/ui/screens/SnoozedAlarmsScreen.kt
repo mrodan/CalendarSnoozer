@@ -39,7 +39,10 @@ import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.scheduler.AlarmScheduler
+import com.calendareventsnooze.ui.theme.AlarmCalendar
+import com.calendareventsnooze.ui.theme.AlarmOnCalendar
 import com.calendareventsnooze.ui.theme.Spacing
+import com.calendareventsnooze.util.CalendarLauncher
 import com.calendareventsnooze.util.formatScheduledTime
 
 // F.4 — every action button in the Manage sheet shares one height.
@@ -219,6 +222,36 @@ fun ManageSnoozeSheet(
                 contentColor = MaterialTheme.colorScheme.onErrorContainer
             )
         ) { Text("Cancel snooze", style = MaterialTheme.typography.labelLarge) }
+
+        // F.12 — same colours and wording as the takeover's button, and the same
+        // effect: opening the event resolves the alarm, so the snooze is
+        // cancelled rather than left to fire again later.
+        Spacer(Modifier.height(Spacing.md))
+        Button(
+            onClick = {
+                AlarmScheduler.cancelAlarm(context, record.alarmId)
+                AppPrefs.removeSnoozedAlarm(context, record.alarmId)
+                AppPrefs.resetAutoSnoozeCount(context, record.alarmId)
+                CalendarLauncher.open(
+                    context = context,
+                    eventId = record.eventId,
+                    eventTitle = record.eventTitle,
+                    eventTimeMs = record.eventTimeMs
+                )
+                onDone()
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(MANAGE_BUTTON_HEIGHT),
+            shape = MaterialTheme.shapes.large,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = AlarmCalendar, contentColor = AlarmOnCalendar)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("OPEN CALENDAR EVENT", style = MaterialTheme.typography.labelLarge)
+                Text("(DISMISSES ALARM)", style = MaterialTheme.typography.bodySmall)
+            }
+        }
 
         Spacer(Modifier.height(Spacing.sm))
         TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) {

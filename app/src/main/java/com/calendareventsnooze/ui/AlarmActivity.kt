@@ -32,6 +32,7 @@ import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.service.AlarmService
 import com.calendareventsnooze.ui.screens.AlarmScreen
 import com.calendareventsnooze.ui.theme.CalendarEventSnoozeTheme
+import com.calendareventsnooze.util.CalendarLauncher
 import com.calendareventsnooze.util.getAlarmEvent
 import com.calendareventsnooze.util.putAlarmEvent
 
@@ -238,147 +239,14 @@ class AlarmActivity : ComponentActivity() {
         })
     }
 
-    /** A concrete calendar event instance resolved from the calendar provider. */
-    private data class CalendarHit(val eventId: Long, val begin: Long, val end: Long)
-
-    /**
-     * B.5 — finds the real calendar event behind this alarm.
-     *
-     * Google Calendar does **not** put an `eventId` in its notification extras
-     * (it is always -1), so the event has to be looked up in the calendar
-     * provider instead. Searches instances around the event's time and matches
-     * on title, preferring the instance closest to that time.
-     */
-    private fun resolveCalendarEvent(alarmEvent: AlarmEvent): CalendarHit? {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR)
-            != PackageManager.PERMISSION_GRANTED) return null
-
-        val anchor = if (alarmEvent.eventTimeMs > 0L) alarmEvent.eventTimeMs
-                     else System.currentTimeMillis()
-        val window = 12L * 60 * 60 * 1000
-        val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().apply {
-            ContentUris.appendId(this, anchor - window)
-            ContentUris.appendId(this, anchor + window)
-        }.build()
-        val projection = arrayOf(
-            CalendarContract.Instances.EVENT_ID,
-            CalendarContract.Instances.BEGIN,
-            CalendarContract.Instances.END,
-            CalendarContract.Instances.TITLE
-        )
-        val wanted = alarmEvent.eventTitle.trim()
-        if (wanted.isEmpty()) return null
-
-        return runCatching {
-            contentResolver.query(uri, projection, null, null, null)?.use { c ->
-                var best: CalendarHit? = null
-                var bestDelta = Long.MAX_VALUE
-                while (c.moveToNext()) {
-                    val title = c.getString(3)?.trim().orEmpty()
-                    if (title.isEmpty()) continue
-                    val matches = title.equals(wanted, ignoreCase = true) ||
-                            title.contains(wanted, ignoreCase = true) ||
-                            wanted.contains(title, ignoreCase = true)
-                    if (!matches) continue
-                    val begin = c.getLong(1)
-                    val delta = kotlin.math.abs(begin - anchor)
-                    if (delta < bestDelta) {
-                        bestDelta = delta
-                        best = CalendarHit(c.getLong(0), begin, c.getLong(2))
-                    }
-                }
-                best
-            }
-        }.getOrNull()
-    }
-
-    /**
-     * B.5 — opens the specific calendar event, never an app chooser.
-     *
-     * Event intents are offered to each installed calendar app explicitly (a
-     * failure just falls through to the next candidate), because handing a bare
-     * `content://com.android.calendar/...` intent to the system lets unrelated
-     * apps claim it — that is what produced the "Open with Google" chooser and
-     * the "Couldn't load object" error.
-     */
+    /** F.12 — the lookup and launch logic is shared with the Manage sheet. */
     private fun launchCalendar(alarmEvent: AlarmEvent) {
-        val installedCalendars = CALENDAR_PACKAGES.filter { pkg ->
-            runCatching { packageManager.getLaunchIntentForPackage(pkg) != null }
-                .getOrDefault(false)
-        }
-
-        // 1. The specific event — from the notification, or looked up in the provider.
-        val hit = if (alarmEvent.eventId > 0L)
-            CalendarHit(alarmEvent.eventId, alarmEvent.eventTimeMs, alarmEvent.eventTimeMs)
-        else resolveCalendarEvent(alarmEvent)
-
-        if (hit != null) {
-            val eventIntent = Intent(Intent.ACTION_VIEW,
-                ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, hit.eventId))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (hit.begin > 0L) {
-                eventIntent.putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, hit.begin)
-                if (hit.end > 0L) {
-                    eventIntent.putExtra(CalendarContract.EXTRA_EVENT_END_TIME, hit.end)
-                }
-            }
-            for (pkg in installedCalendars) {
-                if (tryStart(Intent(eventIntent).setPackage(pkg))) return
-            }
-            calendarPackageFor(eventIntent)?.let {
-                if (tryStart(Intent(eventIntent).setPackage(it))) return
-            }
-        }
-
-        // 2. Open the calendar at the event's day and time.
-        if (alarmEvent.eventTimeMs > 0L) {
-            val timeIntent = Intent(Intent.ACTION_VIEW,
-                CalendarContract.CONTENT_URI.buildUpon()
-                    .appendPath("time")
-                    .appendPath(alarmEvent.eventTimeMs.toString())
-                    .build()
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            for (pkg in installedCalendars) {
-                if (tryStart(Intent(timeIntent).setPackage(pkg))) return
-            }
-        }
-
-        // 3. Last resort — just open the calendar app.
-        for (pkg in installedCalendars) {
-            val launch = packageManager.getLaunchIntentForPackage(pkg) ?: continue
-            if (tryStart(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))) return
-        }
-        tryStart(Intent(Intent.ACTION_MAIN)
-            .addCategory(Intent.CATEGORY_APP_CALENDAR)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }
-
-    private fun tryStart(intent: Intent): Boolean =
-        runCatching { startActivity(intent); true }.getOrDefault(false)
-
-    /**
-     * Returns a **known calendar** package able to handle [intent], or null.
-     *
-     * Deliberately never falls back to "whatever app happens to claim the URI":
-     * on real devices `content://com.android.calendar/...` is often claimed by
-     * unrelated apps (Messages claims it on stock images), which is what produced
-     * the "Open with Google" chooser and the "Couldn't load object" failure.
-     * When no calendar app claims a URI we skip that candidate and fall through
-     * to simply opening the calendar app.
-     */
-    private fun calendarPackageFor(intent: Intent): String? {
-        val handlers = runCatching {
-            @Suppress("DEPRECATION")
-            packageManager.queryIntentActivities(intent, 0).map { it.activityInfo.packageName }
-        }.getOrDefault(emptyList())
-        return CALENDAR_PACKAGES.firstOrNull { it in handlers }
-    }
-
-    private companion object {
-        val CALENDAR_PACKAGES = listOf(
-            "com.google.android.calendar",
-            "com.android.calendar",
-            "com.samsung.android.calendar"
+        CalendarLauncher.open(
+            context = this,
+            eventId = alarmEvent.eventId,
+            eventTitle = alarmEvent.eventTitle,
+            eventTimeMs = alarmEvent.eventTimeMs
         )
     }
+
 }
