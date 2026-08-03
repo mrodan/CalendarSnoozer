@@ -12,6 +12,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -321,6 +322,7 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                     )
                     vibratorOf(context).playOnce(onePattern.buildVibrationWaveform())
                 },
+                modifier = Modifier.align(Alignment.CenterHorizontally), // UI.14
                 shape = MaterialTheme.shapes.large
             ) {
                 Icon(Icons.Outlined.Vibration, contentDescription = null,
@@ -418,7 +420,8 @@ private fun nearestIndex(options: List<Int>, value: Int): Int {
 @Composable
 private fun SettingsSection(
     title: String,
-    content: @Composable () -> Unit
+    // ColumnScope so section contents can use Modifier.align (UI.14).
+    content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
