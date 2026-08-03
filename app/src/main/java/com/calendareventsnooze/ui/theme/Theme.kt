@@ -122,10 +122,12 @@ fun CalendarEventSnoozeTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            @Suppress("DEPRECATION")
-            window.statusBarColor = appBarColors.container.toArgb()
-            @Suppress("DEPRECATION")
-            window.navigationBarColor = colorScheme.background.toArgb()
+            // Deliberately no statusBarColor / navigationBarColor here. Both are
+            // deprecated and ignored from Android 15 onward for apps targeting
+            // SDK 35, so relying on them would look right on Android 14 and
+            // wrong on anything newer. The activity goes edge-to-edge instead
+            // and the M3 top app bar paints the status-bar area itself, which
+            // behaves identically on every version.
             val controller = WindowCompat.getInsetsController(window, view)
             // UI.12 — both top-bar grounds are dark, so status-bar icons are
             // always light regardless of the scheme.

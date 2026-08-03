@@ -2,6 +2,7 @@ package com.calendareventsnooze.ui.screens
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -95,7 +96,9 @@ fun HomeScreen() {
         ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
             PackageManager.PERMISSION_GRANTED
     }
-    val allGranted = notificationAccess && overlay && exactAlarm && readCalendar
+    val fullScreenIntent = remember(refreshKey) { canUseFullScreenIntent(context) }
+    val allGranted =
+        notificationAccess && overlay && exactAlarm && readCalendar && fullScreenIntent
 
     val calendarPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -251,10 +254,19 @@ fun HomeScreen() {
                         PermissionRow(
                             name = "Read Calendar",
                             description = "Lets the app open the correct calendar event",
-                            granted = readCalendar,
-                            isLast = true
+                            granted = readCalendar
                         ) {
                             calendarPermLauncher.launch(Manifest.permission.READ_CALENDAR)
+                        }
+                        // Android 14+ — revocable, and without it the takeover
+                        // silently degrades to an ordinary heads-up notification.
+                        PermissionRow(
+                            name = "Full-screen notifications",
+                            description = "Required for the alarm to take over the screen",
+                            granted = fullScreenIntent,
+                            isLast = true
+                        ) {
+                            openFullScreenIntentSettings(context)
                         }
                     }
                 }
@@ -468,4 +480,35 @@ private fun canScheduleExactAlarms(context: Context): Boolean {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
     } else true
+}
+
+/**
+ * Android 14 made USE_FULL_SCREEN_INTENT revocable per app. It is what lets the
+ * alarm take over a locked screen, so if it is off the takeover quietly becomes
+ * a normal heads-up notification with no indication why — hence surfacing it
+ * alongside the other permissions. Always true below API 34, where the
+ * permission is granted at install and cannot be withdrawn.
+ */
+private fun canUseFullScreenIntent(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
+    } else true
+}
+
+private fun openFullScreenIntentSettings(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+    val intent = Intent(
+        Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+        Uri.parse("package:${context.packageName}")
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    // Fall back to the app's notification settings if the OEM has no such screen.
+    if (!runCatching { context.startActivity(intent); true }.getOrDefault(false)) {
+        runCatching {
+            context.startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
+    }
 }

@@ -3,6 +3,7 @@ package com.calendareventsnooze.ui
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,6 +44,10 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15+ forces edge-to-edge for targetSdk 35 anyway; opting in
+        // explicitly means Android 14 and newer releases lay out identically
+        // instead of the bars changing appearance across versions.
+        enableEdgeToEdge()
         // B.7 — self-heal any snoozed alarm whose OS-level alarm was lost (reboot,
         // process death). Past-due entries are revived instead of sitting dead.
         AlarmScheduler.rescheduleAllSnoozed(applicationContext)
