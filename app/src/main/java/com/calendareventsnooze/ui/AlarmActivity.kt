@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.CalendarContract
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -129,8 +130,28 @@ class AlarmActivity : ComponentActivity() {
      */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (userActionTaken || resolveSent || isFinishing) return
+        reassertTakeover()
+    }
+
+    /**
+     * B.1 on Android 17 — the overview / recents route does **not** deliver
+     * `onUserLeaveHint()`, so that gesture alone used to leave the takeover
+     * sitting in the background (verified on a Pixel 10a: home bounced back,
+     * recents did not). `onStop` fires whichever way the activity is backgrounded,
+     * so it is the reliable backstop.
+     */
+    override fun onStop() {
+        super.onStop()
+        reassertTakeover()
+    }
+
+    private fun reassertTakeover() {
+        if (userActionTaken || resolveSent || isFinishing || isDestroyed) return
         val event = alarmEventState ?: return
+        // Don't fight a deliberate screen-off. The alarm keeps ringing either
+        // way, and the full-screen-intent notification brings the user back.
+        val power = getSystemService(PowerManager::class.java)
+        if (power != null && !power.isInteractive) return
         startActivity(
             Intent(this, AlarmActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or

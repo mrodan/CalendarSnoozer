@@ -104,6 +104,9 @@ class AlarmService : Service() {
     private var vibrator: Vibrator? = null
     private val handler = Handler(Looper.getMainLooper())
 
+    /** True from the moment teardown begins, so it ignores its own delete intent. */
+    private var resolving = false
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -117,10 +120,18 @@ class AlarmService : Service() {
             }
             ACTION_REASSERT_NOTIFICATION -> {
                 // B.6 — swiped away while an alarm is still unresolved: put it back.
-                // Nothing on the stack means the swipe raced a resolution, so let it go.
-                val top = alarmStack.lastOrNull()
-                if (top != null) startForeground(ACTIVE_ALARM_NOTIF_ID, buildAlarmNotification(top))
-                return START_STICKY
+                val top = if (resolving) null else alarmStack.lastOrNull()
+                if (top != null) {
+                    startForeground(ACTIVE_ALARM_NOTIF_ID, buildAlarmNotification(top))
+                    return START_STICKY
+                }
+                // Nothing left to ring: the dismissal raced a resolution, or this is
+                // the teardown's own delete intent. Leaving the service started
+                // without calling startForeground is itself a violation on
+                // Android 14+, so clear up and go away.
+                cancelActiveAlarmNotification(applicationContext)
+                stopSelf()
+                return START_NOT_STICKY
             }
         }
 
@@ -133,6 +144,7 @@ class AlarmService : Service() {
 
         // B.6 — a new alarm interrupts the current one instead of replacing it.
         // Silence whatever is ringing, then push the newcomer on top.
+        resolving = false
         silenceCurrentOutput()
         alarmStack.removeAll { it.alarmId == alarmEvent.alarmId } // guard re-delivery
         alarmStack.add(alarmEvent)
@@ -189,10 +201,7 @@ class AlarmService : Service() {
         alarmStack.removeAll { it.alarmId == alarmId }
 
         if (alarmStack.isEmpty()) {
-            notifyResolved(alarmId)
-            cancelActiveAlarmNotification(applicationContext)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            tearDown(alarmId)
         } else {
             // Bring the interrupted alarm back so the user can act on it (B.6).
             presentTopAlarm(launchActivity = true)
@@ -209,11 +218,33 @@ class AlarmService : Service() {
         silenceCurrentOutput()
         val last = alarmStack.lastOrNull()?.alarmId
         alarmStack.clear()
-        notifyResolved(last)
-        cancelActiveAlarmNotification(applicationContext)
+        tearDown(last)
+    }
+
+    /**
+     * Shuts the service down and takes the notification with it.
+     *
+     * **Order matters.** Cancelling first and detaching second leaves the
+     * notification stranded on Android 17: the B.6 hardening puts FLAG_NO_CLEAR
+     * on it, and a no-clear notification is not removed by
+     * `stopForeground(STOP_FOREGROUND_REMOVE)`. The result was a permanent
+     * "Calendar Alarm Active" entry that the user could not even swipe away,
+     * because no-clear is exactly what stops them. So: leave the foreground
+     * state first, *then* cancel, and cancel once more from onDestroy as a
+     * backstop.
+     *
+     * [resolving] makes the teardown ignore its own delete intent — detaching
+     * the notification can look like a user dismissal, which would otherwise
+     * re-post it.
+     */
+    private fun tearDown(resolvedAlarmId: String?) {
+        resolving = true
         stopForeground(STOP_FOREGROUND_REMOVE)
+        cancelActiveAlarmNotification(applicationContext)
+        notifyResolved(resolvedAlarmId)
         stopSelf()
     }
+
 
     private fun notifyResolved(alarmId: String?) {
         runCatching {
@@ -287,6 +318,7 @@ class AlarmService : Service() {
         // ongoing hides the swipe affordance, NO_CLEAR survives "Clear all", and
         // the delete intent re-posts if the system lets it through anyway
         // (Android 13+ allows dismissing foreground-service notifications).
+        // Verified on Android 17: this still clears correctly on resolve.
         notification.flags = notification.flags or Notification.FLAG_NO_CLEAR
         return notification
     }
@@ -401,6 +433,9 @@ class AlarmService : Service() {
 
     override fun onDestroy() {
         silenceCurrentOutput()
+        // Backstop: never leave the alarm notification behind, whatever route the
+        // service died by. FLAG_NO_CLEAR means the user cannot remove it either.
+        if (alarmStack.isEmpty()) cancelActiveAlarmNotification(applicationContext)
         super.onDestroy()
     }
 
