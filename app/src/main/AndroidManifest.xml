@@ -41,7 +41,9 @@
     <application
         android:name=".CalendarEventSnoozeApp"
         android:allowBackup="true"
-        android:label="Calendar Event Snooze"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Theme.CalendarEventSnooze">
 
         <!-- Main settings activity -->
