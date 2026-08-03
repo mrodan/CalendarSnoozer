@@ -66,6 +66,9 @@ AppPrefs (SharedPreferences + Gson) — all persistence
   can't disagree. Sound & Vibration nests a second pager for its sound modes:
   swiping there moves sub-tabs, and the primary tab row is how you leave.
 - **AlarmActivity** is a separate `singleInstance` activity for the takeover.
+- Opening the real calendar event lives in `util/CalendarLauncher.kt`, shared by
+  the takeover and the Manage sheet (F.12). Traps 3 and 4 both live in there —
+  keep it as the single implementation.
 - Sound settings are per **ringer mode** (SOUND_ON / VIBRATE / SILENT); the
   service picks the profile matching the phone's current ringer state.
 
@@ -194,7 +197,22 @@ The app calls `enableEdgeToEdge()` and lets the M3 top app bar paint the
 status-bar area, which behaves identically on every version. Re-adding those
 setters "to fix" the bar only works on Android 14 and misleads on newer ones.
 
-**14. The app is named "Calendar Snoozer" but the package is not.**
+**14. Never round-trip a source file through PowerShell `Get-Content`/`Set-Content`.**
+PowerShell 5.1 reads as ANSI unless told otherwise, so every em dash in the
+comments comes back as `â€"` and gets written out corrupted. Use the Edit tool
+for source edits. If a bulk rewrite is unavoidable, use
+`[System.IO.File]::ReadAllLines` / `WriteAllLines` with an explicit
+`UTF8Encoding($false)`, then grep for `â€` to confirm.
+
+**15. The alarm volume slider changes a system setting.**
+F.10 overrides the phone's alarm volume with
+`AudioManager.setStreamVolume(STREAM_ALARM, …)` — `MediaPlayer.setVolume` only
+scales *within* the current stream volume, so it cannot make the alarm louder
+than the phone is set to. The previous level is captured once per alarm and
+restored in `stopSoundAndVibration()`, which every stop path runs. Any new exit
+path must keep going through there or the user's volume stays overridden.
+
+**16. The app is named "Calendar Snoozer" but the package is not.**
 `applicationId`, the `com.calendareventsnooze` package and every class name keep
 the old spelling on purpose — renaming them would orphan every saved
 SharedPreference and scheduled alarm. Only `app_name` changed.
@@ -293,6 +311,12 @@ that takes longer than that is measuring an alarm that already resolved itself
 
 Clearing app data wipes the saved records but leaves the `AlarmManager`
 registrations, so test alarms still fire later with no matching record.
-`adb uninstall` does remove them — verify with
-`adb shell dumpsys alarm | grep calendareventsnooze`. Always check this after a
+`adb uninstall` removes them, and cancelling each snooze through the Manage
+sheet removes them without wiping the user's settings. Always check after a
 testing session or the user gets alarms at 3am.
+
+Read that check correctly: most `TRIGGER_ALARM` lines in `dumpsys alarm` sit
+under **`Snapshot:`**, which is historical statistics, not a queue — they
+persist long after the alarm is cancelled. The authoritative list is
+**`Pending alarms per uid`**; if the app's uid is absent from it, nothing is
+scheduled. Same shape of trap as the notification archive above.
