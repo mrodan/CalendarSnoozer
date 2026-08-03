@@ -16,6 +16,8 @@ local.properties
 # --- Signing keys / secrets (never commit these) ---
 *.jks
 *.keystore
+# Holds the keystore passwords, so it matters as much as the .jks itself.
+keystore.properties
 
 # --- OS / misc ---
 .DS_Store
