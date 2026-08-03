@@ -144,7 +144,22 @@ not warnings.
 **9. The status bar does not follow the Compose theme on its own.**
 `Theme.kt` sets `window.statusBarColor` / `navigationBarColor` explicitly. Drop
 that and the bar reverts to the platform theme's indigo, which belongs to no
-palette here.
+palette here. It tracks `LocalAppBarColors.container`, so the bar and the top
+app bar can't drift apart.
+
+**10. `setOngoing(true)` does NOT make a foreground-service notification stick.**
+Since Android 13 the user can swipe an FGS notification away whatever that flag
+says. B.6 needs three layers: `setOngoing`, `FLAG_NO_CLEAR` (set on the built
+`Notification`, NotificationCompat has no builder for it), and a
+`setDeleteIntent` that re-posts via `ACTION_REASSERT_NOTIFICATION` while the
+alarm stack is non-empty. A *programmatic* `cancel()` does not fire the delete
+intent, so resolving an alarm still clears it — don't "simplify" the reassert
+handler into an unconditional re-post or dismissing will resurrect it.
+
+**11. The app is named "Calendar Snoozer" but the package is not.**
+`applicationId`, the `com.calendareventsnooze` package and every class name keep
+the old spelling on purpose — renaming them would orphan every saved
+SharedPreference and scheduled alarm. Only `app_name` changed.
 
 ---
 

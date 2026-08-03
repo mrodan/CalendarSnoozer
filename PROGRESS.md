@@ -81,3 +81,14 @@ Legend: [ ] NOT STARTED | [~] IN PROGRESS | [x] DONE
 - [x] M3.4 Snooze Buttons — each of the four presets is an `OutlinedCard`, so its heading and two fields read as one bounded group.
 - [x] M3.5 Swiping moves between tabs (`HorizontalPager` drives the tab row, so the two cannot disagree). On Sound & Vibration the swipe moves between the three sound modes; the primary tab row is how you leave that tab.
 - Pager APIs are still `@ExperimentalFoundationApi` on Compose 1.6 (BOM 2024.02.00) — both pagers need `@OptIn`.
+
+## Feedback round 6
+(Labels B.6 / F.8 repeat earlier, unrelated items — this round's entries are the ones below.)
+- [x] B.6 "Calendar Alarm Active" notification now persists until the alarm is resolved. It already had `setOngoing(true)`; the cause is that **Android 13+ lets the user dismiss a foreground-service notification regardless of that flag**, so the flag alone can't hold it. Three layers now: `setOngoing` (hides the swipe affordance), `FLAG_NO_CLEAR` (survives "Clear all"), and a `setDeleteIntent` that fires `ACTION_REASSERT_NOTIFICATION` back into AlarmService, which re-posts it whenever the alarm stack is still non-empty. Snooze / dismiss / open-calendar cancel it programmatically, which does **not** fire the delete intent, so resolving still clears it.
+- [x] F.8 App renamed "Calendar Snoozer" (`strings.xml`); the manifest now points `android:label` at `@string/app_name` instead of repeating the literal.
+- [x] F.9 "Test Vibration" button under the Delay Between Patterns slider, in the same tonal style as the Test Alarm buttons. It plays exactly **one** pattern (a copy of the live slider values with `vibrationRepetitions = 1`), so it previews the buzz shape without the full repeat count.
+- [x] UI.12 Top bar — "Calendar Snoozer (IYSnoozeYK)", filled with Granite #395B50 in light and Blue Slate #5A7684 in dark, white title with a lighter tint on the suffix. New `LocalAppBarColors` carries the trio so the status bar matches without re-deriving it; status-bar icons are now always light because both grounds are dark.
+- [x] UI.12 Test-on-lock-screen button takes the same alarm glyph as the button above it, followed by "+5".
+- [x] UI.12 Snoozed Alarms — rule under the heading as well as between entries.
+- [x] UI.12 Force Stop — moved below the Test Alarm section, half width, 52dp tall (80% of 64), left aligned, and pinned to the **light** error colours in both schemes so the panic button never changes appearance. Its glyph is drawn at 16dp (80% of 20) with an X running corner to corner at the border's 2dp stroke.
+- [x] UI.12 App icon added at all five densities from the supplied PNGs. The project had **no launcher icon at all** before this — no mipmaps and no `android:icon`, so it was showing the system default.
