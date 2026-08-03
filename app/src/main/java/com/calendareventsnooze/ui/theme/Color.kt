@@ -99,6 +99,19 @@ val DarkInverseOnSurface = Color(0xFF2F3129)
 val DarkInversePrimary   = BlueSlate
 
 // ---------------------------------------------------------------------------
+// Top app bar (UI.12) — a filled bar rather than a surface one, so it takes a
+// palette colour directly and its content colour is the M3 "on" pairing for it.
+// Both grounds are dark, so the status-bar icons stay light in either scheme.
+// ---------------------------------------------------------------------------
+val LightTopBar          = Granite   // #395B50
+val LightOnTopBar        = Color(0xFFFFFFFF)
+val LightOnTopBarVariant = Color(0xFFCFE0D8)
+
+val DarkTopBar           = BlueSlate // #5A7684
+val DarkOnTopBar         = Color(0xFFFFFFFF)
+val DarkOnTopBarVariant  = Color(0xFFD8E2F0)
+
+// ---------------------------------------------------------------------------
 // Error roles. The palette has no red, and a destructive action must not be
 // coloured like an ordinary one, so these are M3's standard error tones.
 // ---------------------------------------------------------------------------

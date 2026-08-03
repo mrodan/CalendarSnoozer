@@ -55,11 +55,15 @@ fun SnoozedAlarmsSection(
     alarms: List<SnoozedAlarmRecord>,
     onManage: (SnoozedAlarmRecord) -> Unit
 ) {
+    // UI.12 — a rule under the heading, and one between every pair of alarms.
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
     if (alarms.isEmpty()) {
         Text(
             "No snoozed alarms",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = Spacing.md)
         )
         return
     }

@@ -37,6 +37,7 @@ import com.calendareventsnooze.ui.screens.HomeScreen
 import com.calendareventsnooze.ui.screens.SnoozePresetsScreen
 import com.calendareventsnooze.ui.screens.SoundProfileScreen
 import com.calendareventsnooze.ui.theme.CalendarEventSnoozeTheme
+import com.calendareventsnooze.ui.theme.LocalAppBarColors
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -80,14 +81,15 @@ private fun MainScreen() {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
+            val appBar = LocalAppBarColors.current
             CenterAlignedTopAppBar(
                 title = {
                     Text(
                         buildAnnotatedString {
-                            append("Calendar Event Snooze")
-                            withStyle(
-                                SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            ) { append("  (IFYKYK)") }
+                            append("Calendar Snoozer")
+                            withStyle(SpanStyle(color = appBar.contentVariant)) {
+                                append("  (IYSnoozeYK)")
+                            }
                         },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -95,8 +97,8 @@ private fun MainScreen() {
                     )
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                    containerColor = appBar.container,
+                    titleContentColor = appBar.content
                 )
             )
         }

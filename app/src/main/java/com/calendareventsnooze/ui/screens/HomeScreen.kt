@@ -11,11 +11,11 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.NotificationsActive
-import androidx.compose.material.icons.outlined.ScreenLockPortrait
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -56,8 +55,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -65,6 +68,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.service.AlarmService
+import com.calendareventsnooze.ui.theme.LightError
+import com.calendareventsnooze.ui.theme.LightErrorContainer
+import com.calendareventsnooze.ui.theme.LightOnErrorContainer
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.TestAlarmHelper
 
@@ -112,37 +118,6 @@ fun HomeScreen() {
 
         Spacer(Modifier.height(Spacing.xl))
 
-        // ---- Force Stop ----
-        // M3: a destructive action takes the error role rather than an arbitrary
-        // red, so it stays legible in both schemes.
-        Button(
-            onClick = {
-                // Emergency: silence any alarm, clear notifications, then hard-reset
-                // the app process so nothing stuck can keep sounding.
-                AlarmService.forceStopEverything(context)
-                android.os.Process.killProcess(android.os.Process.myPid())
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp),
-            shape = MaterialTheme.shapes.large,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer
-            )
-        ) {
-            // UI.10 — the stop glyph is drawn, not an emoji, so it can be red.
-            Box(
-                Modifier
-                    .size(20.dp)
-                    .border(2.dp, MaterialTheme.colorScheme.error, MaterialTheme.shapes.extraSmall)
-            )
-            Spacer(Modifier.size(Spacing.md))
-            Text("FORCE STOP APP", style = MaterialTheme.typography.titleMedium)
-        }
-
-        Spacer(Modifier.height(Spacing.xl))
-
         // ---- Section 2: Test Alarm ----
         SectionCard(title = "Test Alarm") {
             FilledTonalButton(
@@ -175,13 +150,28 @@ fun HomeScreen() {
                     .height(56.dp),
                 shape = MaterialTheme.shapes.large
             ) {
-                Icon(Icons.Outlined.ScreenLockPortrait, contentDescription = null,
+                // UI.12 — same alarm glyph as the button above, then "+5", so the
+                // two test buttons read as a pair that differ only by the delay.
+                Icon(Icons.Outlined.NotificationsActive, contentDescription = null,
                     modifier = Modifier.size(20.dp))
+                Text("+5", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.size(Spacing.sm))
                 Text("Test on lock screen (+5 sec)",
                     style = MaterialTheme.typography.labelLarge)
             }
         }
+
+        Spacer(Modifier.height(Spacing.xl))
+
+        // ---- Force Stop (UI.12 — below Test Alarm, half width, left aligned) ----
+        ForceStopButton(
+            onForceStop = {
+                // Emergency: silence any alarm, clear notifications, then hard-reset
+                // the app process so nothing stuck can keep sounding.
+                AlarmService.forceStopEverything(context)
+                android.os.Process.killProcess(android.os.Process.myPid())
+            }
+        )
 
         Spacer(Modifier.height(Spacing.xl))
 
@@ -307,6 +297,58 @@ fun HomeScreen() {
                 TextButton(onClick = { showOverlayDialog = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+/**
+ * UI.12 — Force Stop keeps the light scheme's error colours in **both** themes.
+ * It is the one control the user reaches for in a panic, so it should look
+ * identical whatever the phone's theme is doing.
+ */
+@Composable
+private fun ForceStopButton(onForceStop: () -> Unit) {
+    Button(
+        onClick = onForceStop,
+        modifier = Modifier
+            .fillMaxWidth(0.5f)
+            .height(52.dp), // 80% of the old 64dp
+        shape = MaterialTheme.shapes.large,
+        contentPadding = PaddingValues(horizontal = Spacing.md),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = LightErrorContainer,
+            contentColor = LightOnErrorContainer
+        )
+    ) {
+        StopWithCrossIcon()
+        Spacer(Modifier.size(Spacing.sm))
+        Text(
+            "FORCE STOP APP",
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/**
+ * UI.12 — a square outline with an X whose arms run corner to corner, drawn at
+ * the same stroke width as the border. Emoji can't be recoloured and no Material
+ * icon matches, so it is drawn.
+ */
+@Composable
+private fun StopWithCrossIcon() {
+    Canvas(Modifier.size(16.dp)) { // 80% of the old 20dp
+        val stroke = 2.dp.toPx()
+        val inset = stroke / 2f
+        val far = size.width - inset
+        drawRect(
+            color = LightError,
+            topLeft = Offset(inset, inset),
+            size = Size(size.width - stroke, size.height - stroke),
+            style = Stroke(width = stroke)
+        )
+        drawLine(LightError, Offset(inset, inset), Offset(far, far), stroke)
+        drawLine(LightError, Offset(far, inset), Offset(inset, far), stroke)
     }
 }
 

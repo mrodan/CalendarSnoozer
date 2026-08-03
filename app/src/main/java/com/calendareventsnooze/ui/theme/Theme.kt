@@ -6,7 +6,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -82,6 +85,21 @@ private val DarkColors = darkColorScheme(
 )
 
 /**
+ * UI.12 — the top app bar is filled with a palette colour instead of a surface
+ * role, so its three colours travel together rather than being re-derived at
+ * each use site (the status bar has to match it too).
+ */
+data class AppBarColors(
+    val container: Color,
+    val content: Color,
+    val contentVariant: Color
+)
+
+val LocalAppBarColors = staticCompositionLocalOf {
+    AppBarColors(LightTopBar, LightOnTopBar, LightOnTopBarVariant)
+}
+
+/**
  * M3.1 — the app follows the system light/dark setting. Dynamic colour is
  * deliberately *not* used: the palette is the brand, and letting the wallpaper
  * override it would defeat the point.
@@ -92,6 +110,11 @@ fun CalendarEventSnoozeTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColors else LightColors
+    val appBarColors = if (darkTheme) {
+        AppBarColors(DarkTopBar, DarkOnTopBar, DarkOnTopBarVariant)
+    } else {
+        AppBarColors(LightTopBar, LightOnTopBar, LightOnTopBarVariant)
+    }
 
     // Tie the system bars to the scheme. Without the explicit colours the status
     // bar keeps the platform theme's indigo, which belongs to no palette here.
@@ -100,19 +123,23 @@ fun CalendarEventSnoozeTheme(
         SideEffect {
             val window = (view.context as Activity).window
             @Suppress("DEPRECATION")
-            window.statusBarColor = colorScheme.surfaceContainer.toArgb()
+            window.statusBarColor = appBarColors.container.toArgb()
             @Suppress("DEPRECATION")
             window.navigationBarColor = colorScheme.background.toArgb()
             val controller = WindowCompat.getInsetsController(window, view)
-            controller.isAppearanceLightStatusBars = !darkTheme
+            // UI.12 — both top-bar grounds are dark, so status-bar icons are
+            // always light regardless of the scheme.
+            controller.isAppearanceLightStatusBars = false
             controller.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = AppTypography,
-        shapes = AppShapes,
-        content = content
-    )
+    CompositionLocalProvider(LocalAppBarColors provides appBarColors) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = AppTypography,
+            shapes = AppShapes,
+            content = content
+        )
+    }
 }
