@@ -92,3 +92,9 @@ Legend: [ ] NOT STARTED | [~] IN PROGRESS | [x] DONE
 - [x] UI.12 Snoozed Alarms — rule under the heading as well as between entries.
 - [x] UI.12 Force Stop — moved below the Test Alarm section, half width, 52dp tall (80% of 64), left aligned, and pinned to the **light** error colours in both schemes so the panic button never changes appearance. Its glyph is drawn at 16dp (80% of 20) with an X running corner to corner at the border's 2dp stroke.
 - [x] UI.12 App icon added at all five densities from the supplied PNGs. The project had **no launcher icon at all** before this — no mipmaps and no `android:icon`, so it was showing the system default.
+
+## Feedback round 7
+- [x] UI.13 Force Stop is now an `OutlinedButton`: transparent container so the page background shows through, 1dp error-coloured border, centred with `Modifier.align(Alignment.CenterHorizontally)` (the Home column aligns Start by default). Icon corners rounded to 4dp and the stroke cut from 2dp to 1.5dp (25% thinner).
+- **Reversed part of UI.12 on purpose:** that round pinned the button to the *light* error colours in both schemes so it looked identical everywhere. That only worked because the near-black content colour (#410002) sat on a pale pink container. With the fill removed it lands on the dark scheme's #12180E background at ~1.06:1 — invisible. Border and label now take `colorScheme.error`, which adapts (#BA1A1A light at 6.4:1, #FFB4AB dark at 10.6:1). No single fixed colour can clear 4.5:1 against both backgrounds — the maths rules it out.
+- The X arms stop where the corner arc begins rather than at the square's geometric corner: on a rounded rect that corner sits outside the outline, so full-length diagonals would poke past it. Offset is `r · (1 − 1/√2)` per axis.
+- Verified on the Pixel 5a in **dark** mode (the case the old pinned colour would have broken). Light mode not re-checked this round.
