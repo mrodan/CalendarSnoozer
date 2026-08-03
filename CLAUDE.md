@@ -156,7 +156,15 @@ alarm stack is non-empty. A *programmatic* `cancel()` does not fire the delete
 intent, so resolving an alarm still clears it — don't "simplify" the reassert
 handler into an unconditional re-post or dismissing will resurrect it.
 
-**11. The app is named "Calendar Snoozer" but the package is not.**
+**11. The adaptive-icon safe zone is a CIRCLE, not a square.**
+"66 of 108dp" is a 66dp-*diameter circle*, so a glyph clears it only if its
+**diagonal** is ≤ 66dp — a 53 × 65.5dp glyph fits the square and still gets
+clipped by a Pixel's round mask. Measure the diagonal, not the sides. The
+foreground in `mipmap-*/ic_launcher_foreground.png` is the supplied art scaled
+to 78.3% for exactly this reason; re-exporting it at "full size" will clip it
+again.
+
+**12. The app is named "Calendar Snoozer" but the package is not.**
 `applicationId`, the `com.calendareventsnooze` package and every class name keep
 the old spelling on purpose — renaming them would orphan every saved
 SharedPreference and scheduled alarm. Only `app_name` changed.
