@@ -109,8 +109,11 @@ fun AlarmScreen(
             .padding(Spacing.xl),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // UI.2 — content sits lower on the screen.
-        Spacer(Modifier.height(80.dp))
+        // UI.2 / UI.15 — content sits lower on the screen. The extra 44dp shifts
+        // the title down by exactly one row: headlineMedium's 36sp line height
+        // plus the 8dp gap under it, so the title now starts where the event
+        // time used to.
+        Spacer(Modifier.height(124.dp))
 
         Text(
             alarmEvent.eventTitle,
