@@ -26,9 +26,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.outlined.Vibration
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -61,6 +63,8 @@ import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.ui.theme.Spacing
+import com.calendareventsnooze.util.playOnce
+import com.calendareventsnooze.util.vibratorOf
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -291,6 +295,40 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
             OptionSlider("Delay Between Patterns", SoundProfile.SIZE_LABELS, patternDelayIdx) {
                 patternDelayIdx = it
             }
+
+            // F.9 — plays exactly one pattern (repetitions ignored) so the buzz
+            // settings above can be felt without firing a whole alarm.
+            Spacer(Modifier.height(Spacing.md))
+            FilledTonalButton(
+                onClick = {
+                    val onePattern = SoundProfile(
+                        ringerMode = mode,
+                        soundEnabled = false,
+                        soundUri = null,
+                        vibrationEnabled = true,
+                        buzzOnMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOnIdx],
+                        buzzOffMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOffIdx],
+                        buzzesPerPattern = buzzesIdx + 1,
+                        delayBetweenPatternsMs =
+                            SoundProfile.PATTERN_DELAY_OPTIONS[patternDelayIdx],
+                        vibrationRepetitions = 1,
+                        soundStartsFirst = true,
+                        secondStartDelaySeconds = 0,
+                        autoDismissSeconds = 0,
+                        autoDismissAction = AutoDismissAction.DISMISS,
+                        autoDismissSnoozeMinutes = 0,
+                        autoDismissMaxRetries = 0
+                    )
+                    vibratorOf(context).playOnce(onePattern.buildVibrationWaveform())
+                },
+                shape = MaterialTheme.shapes.large
+            ) {
+                Icon(Icons.Outlined.Vibration, contentDescription = null,
+                    modifier = Modifier.size(18.dp))
+                Spacer(Modifier.size(Spacing.sm))
+                Text("Test Vibration", style = MaterialTheme.typography.labelLarge)
+            }
+
             Spacer(Modifier.height(Spacing.lg))
             OptionSlider("Number of Pattern Repetitions", COUNT_LABELS, repetitionsIdx) {
                 repetitionsIdx = it
