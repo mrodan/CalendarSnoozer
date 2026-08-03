@@ -5,7 +5,8 @@ Calendar notifications and replaces them with a full-screen alarm takeover
 offering rich snooze/dismiss controls.
 
 - **Package:** `com.calendareventsnooze` · minSdk 26 · targetSdk 35
-- **Target device:** Pixel 5a, Android 14, timezone America/New_York (UTC-4/-5)
+- **Target devices:** Pixel 10a / Android 17 (API 37) — primary; Pixel 5a /
+  Android 14 — secondary. Timezone America/New_York (UTC-4/-5)
 - `PROGRESS.md` is the changelog (what was built, each bug's root cause).
   This file is the durable "how it works / what will bite you" doc.
 
@@ -95,9 +96,17 @@ system destroying us (Home button, task swipe) and the alarm must survive.
 
 ### Takeover can't be escaped (B.1)
 
-`AlarmActivity.onUserLeaveHint()` re-launches itself to the front, so home /
-recents / quick-switch gestures bounce back. Only an explicit action or the
-service resolving the alarm closes it. This relies on the overlay permission.
+`AlarmActivity` re-launches itself to the front from **both**
+`onUserLeaveHint()` and `onStop()`. Two hooks, because Android 17 does not
+deliver `onUserLeaveHint()` for the overview / recents route — only for home —
+so `onStop()` is the one signal that fires whichever way the activity is
+backgrounded. Only an explicit action or the service resolving the alarm closes
+it. This relies on the overlay permission: the relaunch is admitted as
+`BAL_ALLOW_SAW_PERMISSION`, visible in logcat.
+
+The relaunch deliberately skips when the screen is off (`PowerManager
+.isInteractive`), so it does not fight a deliberate screen-off; the alarm keeps
+ringing and the full-screen-intent notification brings the user back.
 
 ---
 
@@ -264,3 +273,26 @@ Non-obvious testing facts:
 
 Physical-device-only behaviour: vibration, real lock-screen takeover, OEM
 battery optimisation, real calendar notification interception, ringer switch.
+
+### Measuring notifications — do NOT grep `dumpsys notification`
+
+`dumpsys notification` includes `mArchive`, a history of *past* notifications,
+so grepping it for the package reports a notification long after it was
+cancelled. That produced a convincing phantom "orphaned notification after
+dismiss" bug that did not exist. Use `adb shell cmd notification list`, which
+lists only live notifications.
+
+### The 60-second auto-snooze silently invalidates takeover tests
+
+The default profiles auto-snooze after 60s (30s in SILENT). Any takeover test
+that takes longer than that is measuring an alarm that already resolved itself
+— which looks exactly like "the takeover escaped". Set `autoDismissSeconds` to
+0 first, or keep the whole test under ~40s.
+
+### `pm clear` does NOT cancel scheduled alarms
+
+Clearing app data wipes the saved records but leaves the `AlarmManager`
+registrations, so test alarms still fire later with no matching record.
+`adb uninstall` does remove them — verify with
+`adb shell dumpsys alarm | grep calendareventsnooze`. Always check this after a
+testing session or the user gets alarms at 3am.
