@@ -1,6 +1,7 @@
 package com.calendareventsnooze.ui.screens
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
@@ -144,6 +145,15 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
 
     var soundEnabled by remember(mode) { mutableStateOf(initial.soundEnabled) }
     var soundUri by remember(mode) { mutableStateOf(initial.soundUri) }
+    // F.10 — the ringtone's display name ("Castle"), resolved from the URI.
+    val soundTitle = remember(soundUri) { ringtoneTitle(context, soundUri) }
+    var alarmVolume by remember(mode) { mutableIntStateOf(initial.alarmVolumePercent) }
+    var fadeInSeconds by remember(mode) {
+        mutableStateOf(initial.fadeInSeconds.toString())
+    }
+    var stopsAfterSeconds by remember(mode) {
+        mutableStateOf(initial.soundStopsAfterSeconds.toString())
+    }
     var vibrationEnabled by remember(mode) { mutableStateOf(initial.vibrationEnabled) }
     // F.7 — the five vibration sliders. Each holds the *index* of its stop, so a
     // stored value that isn't exactly on a stop snaps to the nearest one.
@@ -197,7 +207,8 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     // button. Keying the effect on all editable state means no change can be
     // missed, whichever control produced it.
     LaunchedEffect(
-        soundEnabled, soundUri, vibrationEnabled, buzzOnIdx, buzzOffIdx, buzzesIdx,
+        soundEnabled, soundUri, alarmVolume, fadeInSeconds, stopsAfterSeconds,
+        vibrationEnabled, buzzOnIdx, buzzOffIdx, buzzesIdx,
         patternDelayIdx, repetitionsIdx,
         soundStartsFirst, secondDelay, autoDismissSeconds, autoSnoozeMinutes, maxRetries,
         autoDismissAction
@@ -208,6 +219,10 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 ringerMode = mode,
                 soundEnabled = soundEnabled,
                 soundUri = soundUri,
+                alarmVolumePercent = alarmVolume,
+                fadeInSeconds = fadeInSeconds.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                soundStopsAfterSeconds = stopsAfterSeconds.toIntOrNull()
+                    ?.coerceAtLeast(0) ?: 0,
                 vibrationEnabled = vibrationEnabled,
                 buzzOnMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOnIdx],
                 buzzOffMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOffIdx],
@@ -243,8 +258,16 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         SettingsSection("Sound") {
             SwitchRow("Enable sound alarm", soundEnabled) { soundEnabled = it }
             Spacer(Modifier.height(Spacing.md))
+            // F.10 — the ringtone's own title, at the same weight as the switch
+            // label above, with the raw URI kept underneath for reference.
             Text(
-                soundName(soundUri),
+                soundTitle,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                soundPath(soundUri),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -255,7 +278,7 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 onClick = {
                     val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
                         putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Choose alarm sound")
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Change alarm sound")
                         putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
                         putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
                             Settings.System.DEFAULT_ALARM_ALERT_URI)
@@ -269,8 +292,51 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 Icon(Icons.Outlined.MusicNote, contentDescription = null,
                     modifier = Modifier.size(18.dp))
                 Spacer(Modifier.size(Spacing.sm))
-                Text("Choose sound", style = MaterialTheme.typography.labelLarge)
+                Text("Change Sound", style = MaterialTheme.typography.labelLarge)
             }
+
+            // F.10 — playback shaping.
+            Spacer(Modifier.height(Spacing.lg))
+            Text("Alarm Volume", style = MaterialTheme.typography.titleSmall)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Slider(
+                    value = alarmVolume.toFloat(),
+                    onValueChange = {
+                        alarmVolume = it.roundToInt().coerceIn(
+                            SoundProfile.MIN_VOLUME_PERCENT, SoundProfile.MAX_VOLUME_PERCENT)
+                    },
+                    valueRange = SoundProfile.MIN_VOLUME_PERCENT.toFloat()..
+                        SoundProfile.MAX_VOLUME_PERCENT.toFloat(),
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.size(Spacing.md))
+                Text(
+                    "$alarmVolume%",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(
+                "Overrides the phone's alarm volume while this alarm rings.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(Spacing.md))
+            NumberField(
+                value = fadeInSeconds,
+                onValueChange = { fadeInSeconds = it },
+                label = "Alarm Fade In (seconds) — 0 for none"
+            )
+            Spacer(Modifier.height(Spacing.md))
+            NumberField(
+                value = stopsAfterSeconds,
+                onValueChange = { stopsAfterSeconds = it },
+                label = "Alarm Stops After (seconds) — 0 to keep sounding"
+            )
         }
 
         Spacer(Modifier.height(Spacing.lg))
@@ -292,13 +358,10 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
             OptionSlider("Number of Buzzes Pattern", COUNT_LABELS, buzzesIdx) {
                 buzzesIdx = it
             }
-            Spacer(Modifier.height(Spacing.lg))
-            OptionSlider("Delay Between Patterns", SoundProfile.SIZE_LABELS, patternDelayIdx) {
-                patternDelayIdx = it
-            }
-
             // F.9 — plays exactly one pattern (repetitions ignored) so the buzz
-            // settings above can be felt without firing a whole alarm.
+            // settings above can be felt without firing a whole alarm. F.11 puts
+            // it directly under the sliders that shape a single pattern, above
+            // the two that only govern how patterns repeat.
             Spacer(Modifier.height(Spacing.md))
             FilledTonalButton(
                 onClick = {
@@ -306,6 +369,9 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                         ringerMode = mode,
                         soundEnabled = false,
                         soundUri = null,
+                        alarmVolumePercent = AppPrefs.DEFAULT_ALARM_VOLUME_PERCENT,
+                        fadeInSeconds = 0,
+                        soundStopsAfterSeconds = 0,
                         vibrationEnabled = true,
                         buzzOnMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOnIdx],
                         buzzOffMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOffIdx],
@@ -331,6 +397,10 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 Text("Test Vibration", style = MaterialTheme.typography.labelLarge)
             }
 
+            Spacer(Modifier.height(Spacing.lg))
+            OptionSlider("Delay Between Patterns", SoundProfile.SIZE_LABELS, patternDelayIdx) {
+                patternDelayIdx = it
+            }
             Spacer(Modifier.height(Spacing.lg))
             OptionSlider("Number of Pattern Repetitions", COUNT_LABELS, repetitionsIdx) {
                 repetitionsIdx = it
@@ -482,8 +552,26 @@ private fun OptionSlider(
     }
 }
 
-private fun soundName(uri: String?): String =
-    if (uri.isNullOrEmpty()) "Default alarm sound" else uri
+private fun soundPath(uri: String?): String =
+    if (uri.isNullOrEmpty()) "System default" else uri
+
+/**
+ * F.10 — the ringtone's own display name, e.g. "Castle". Falls back to the
+ * default alarm sound's title when nothing is chosen, and to a plain label if
+ * the URI no longer resolves (a deleted file, or a media store the app can't
+ * read).
+ */
+private fun ringtoneTitle(context: Context, uri: String?): String {
+    val target = if (uri.isNullOrEmpty()) {
+        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+    } else {
+        Uri.parse(uri)
+    } ?: return "Default alarm sound"
+    val title = runCatching {
+        RingtoneManager.getRingtone(context, target)?.getTitle(context)
+    }.getOrNull()
+    return if (title.isNullOrBlank()) "Default alarm sound" else title
+}
 
 @Composable
 private fun NumberField(

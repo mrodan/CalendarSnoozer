@@ -61,6 +61,9 @@ class AlarmService : Service() {
         const val EXTRA_ALARM_ID = "ces_resolved_alarm_id"
         const val ACTIVE_ALARM_NOTIF_ID = 1002
 
+        /** Volume steps per second while fading in (F.10). */
+        private const val FADE_STEPS_PER_SECOND = 10
+
         fun cancelActiveAlarmNotification(context: Context) {
             context.getSystemService(NotificationManager::class.java)
                 .cancel(ACTIVE_ALARM_NOTIF_ID)
@@ -106,6 +109,9 @@ class AlarmService : Service() {
 
     /** True from the moment teardown begins, so it ignores its own delete intent. */
     private var resolving = false
+
+    /** F.10 — the phone's alarm volume before we overrode it, to restore after. */
+    private var previousAlarmVolume: Int? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -351,6 +357,7 @@ class AlarmService : Service() {
         try {
             val uri = if (!profile.soundUri.isNullOrEmpty()) Uri.parse(profile.soundUri)
                       else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            applyAlarmVolume(profile)
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ALARM)
@@ -359,9 +366,70 @@ class AlarmService : Service() {
                 setDataSource(applicationContext, uri)
                 isLooping = true
                 prepare()
+                // F.10 — fade in from silence rather than starting at full blast.
+                if (profile.fadeInSeconds > 0) setVolume(0f, 0f)
                 start()
             }
+            if (profile.fadeInSeconds > 0) startFadeIn(profile.fadeInSeconds)
+            // F.10 — optionally silence the sound after N seconds. The alarm
+            // itself keeps running: the takeover stays up and vibration
+            // continues, only the audio stops.
+            if (profile.soundStopsAfterSeconds > 0) {
+                handler.postDelayed(
+                    { stopSoundOnly() },
+                    profile.soundStopsAfterSeconds * 1000L
+                )
+            }
         } catch (e: Exception) { /* log and continue */ }
+    }
+
+    /**
+     * F.10 — the slider is meant to override the phone's alarm volume, so it
+     * sets the ALARM stream itself rather than merely attenuating below whatever
+     * the phone happens to be at. The previous level is remembered and restored
+     * when the alarm stops, so the phone is left as it was found.
+     */
+    private fun applyAlarmVolume(profile: SoundProfile) {
+        runCatching {
+            val audio = getSystemService(AudioManager::class.java)
+            val max = audio.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            if (previousAlarmVolume == null) {
+                previousAlarmVolume = audio.getStreamVolume(AudioManager.STREAM_ALARM)
+            }
+            val percent = profile.alarmVolumePercent
+                .coerceIn(SoundProfile.MIN_VOLUME_PERCENT, SoundProfile.MAX_VOLUME_PERCENT)
+            val target = Math.round(max * percent / 100f).coerceIn(1, max)
+            audio.setStreamVolume(AudioManager.STREAM_ALARM, target, 0)
+        }
+    }
+
+    /** Puts the phone's alarm volume back exactly as it was. */
+    private fun restoreAlarmVolume() {
+        val previous = previousAlarmVolume ?: return
+        previousAlarmVolume = null
+        runCatching {
+            getSystemService(AudioManager::class.java)
+                .setStreamVolume(AudioManager.STREAM_ALARM, previous, 0)
+        }
+    }
+
+    /** F.10 — ramps the player from silence to full over [seconds]. */
+    private fun startFadeIn(seconds: Int) {
+        val steps = (seconds * FADE_STEPS_PER_SECOND).coerceAtLeast(1)
+        val stepMs = (seconds * 1000L) / steps
+        for (step in 1..steps) {
+            handler.postDelayed({
+                val level = step.toFloat() / steps
+                runCatching { mediaPlayer?.setVolume(level, level) }
+            }, stepMs * step)
+        }
+    }
+
+    /** Stops only the audio, leaving the alarm (and its vibration) running. */
+    private fun stopSoundOnly() {
+        runCatching { mediaPlayer?.stop(); mediaPlayer?.release() }
+        mediaPlayer = null
+        restoreAlarmVolume()
     }
 
     private fun startVibration(profile: SoundProfile) {
@@ -377,6 +445,10 @@ class AlarmService : Service() {
         mediaPlayer = null
         runCatching { vibrator?.cancel() }
         vibrator = null
+        // F.10 — hand the phone's alarm volume back. This runs on every stop
+        // path (resolve, interrupt, force-stop, onDestroy) so the override can
+        // never outlive the alarm.
+        restoreAlarmVolume()
     }
 
     // ------------------------------------------------------------------

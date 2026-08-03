@@ -28,6 +28,11 @@ object AppPrefs {
     const val DEFAULT_PATTERN_DELAY_MS = 2000
     const val DEFAULT_VIBRATION_REPETITIONS = 5
 
+    // F.10 — sound shaping defaults: full volume, no fade, no cut-off.
+    const val DEFAULT_ALARM_VOLUME_PERCENT = 100
+    const val DEFAULT_FADE_IN_SECONDS = 0
+    const val DEFAULT_SOUND_STOPS_AFTER_SECONDS = 0
+
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -67,6 +72,9 @@ object AppPrefs {
         val ringerMode: RingerMode,
         val soundEnabled: Boolean,
         val soundUri: String?,
+        val alarmVolumePercent: Int?,
+        val fadeInSeconds: Int?,
+        val soundStopsAfterSeconds: Int?,
         val vibrationEnabled: Boolean,
         val buzzOnMs: Int?,
         val buzzOffMs: Int?,
@@ -82,7 +90,8 @@ object AppPrefs {
     )
 
     private fun SoundProfile.toJson() = SoundProfileJson(
-        ringerMode, soundEnabled, soundUri, vibrationEnabled,
+        ringerMode, soundEnabled, soundUri,
+        alarmVolumePercent, fadeInSeconds, soundStopsAfterSeconds, vibrationEnabled,
         buzzOnMs, buzzOffMs, buzzesPerPattern, delayBetweenPatternsMs,
         vibrationRepetitions, soundStartsFirst,
         secondStartDelaySeconds, autoDismissSeconds, autoDismissAction,
@@ -93,6 +102,11 @@ object AppPrefs {
         ringerMode = ringerMode,
         soundEnabled = soundEnabled,
         soundUri = soundUri,
+        alarmVolumePercent = (alarmVolumePercent ?: DEFAULT_ALARM_VOLUME_PERCENT)
+            .coerceIn(SoundProfile.MIN_VOLUME_PERCENT, SoundProfile.MAX_VOLUME_PERCENT),
+        fadeInSeconds = (fadeInSeconds ?: DEFAULT_FADE_IN_SECONDS).coerceAtLeast(0),
+        soundStopsAfterSeconds = (soundStopsAfterSeconds
+            ?: DEFAULT_SOUND_STOPS_AFTER_SECONDS).coerceAtLeast(0),
         vibrationEnabled = vibrationEnabled,
         buzzOnMs = (buzzOnMs ?: DEFAULT_BUZZ_ON_MS).coerceAtLeast(1),
         buzzOffMs = (buzzOffMs ?: DEFAULT_BUZZ_OFF_MS).coerceAtLeast(0),
@@ -115,6 +129,9 @@ object AppPrefs {
             ringerMode = RingerMode.SOUND_ON,
             soundEnabled = true,
             soundUri = null,
+            alarmVolumePercent = DEFAULT_ALARM_VOLUME_PERCENT,
+            fadeInSeconds = DEFAULT_FADE_IN_SECONDS,
+            soundStopsAfterSeconds = DEFAULT_SOUND_STOPS_AFTER_SECONDS,
             vibrationEnabled = true,
             buzzOnMs = DEFAULT_BUZZ_ON_MS,
             buzzOffMs = DEFAULT_BUZZ_OFF_MS,
@@ -132,6 +149,9 @@ object AppPrefs {
             ringerMode = RingerMode.VIBRATE,
             soundEnabled = false,
             soundUri = null,
+            alarmVolumePercent = DEFAULT_ALARM_VOLUME_PERCENT,
+            fadeInSeconds = DEFAULT_FADE_IN_SECONDS,
+            soundStopsAfterSeconds = DEFAULT_SOUND_STOPS_AFTER_SECONDS,
             vibrationEnabled = true,
             buzzOnMs = DEFAULT_BUZZ_ON_MS,
             buzzOffMs = DEFAULT_BUZZ_OFF_MS,
@@ -149,6 +169,9 @@ object AppPrefs {
             ringerMode = RingerMode.SILENT,
             soundEnabled = false,
             soundUri = null,
+            alarmVolumePercent = DEFAULT_ALARM_VOLUME_PERCENT,
+            fadeInSeconds = DEFAULT_FADE_IN_SECONDS,
+            soundStopsAfterSeconds = DEFAULT_SOUND_STOPS_AFTER_SECONDS,
             vibrationEnabled = false,
             buzzOnMs = DEFAULT_BUZZ_ON_MS,
             buzzOffMs = DEFAULT_BUZZ_OFF_MS,

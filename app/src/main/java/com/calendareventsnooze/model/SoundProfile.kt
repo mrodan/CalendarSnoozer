@@ -7,6 +7,10 @@ data class SoundProfile(
     val ringerMode: RingerMode,
     val soundEnabled: Boolean,
     val soundUri: String?,
+    // F.10 — sound playback shaping.
+    val alarmVolumePercent: Int,      // 1..100; overrides the phone's alarm volume
+    val fadeInSeconds: Int,           // 0 = start at full volume
+    val soundStopsAfterSeconds: Int,  // 0 = keep sounding until the alarm resolves
     val vibrationEnabled: Boolean,
     // F.7 — the waveform is described by these five values instead of a raw
     // comma-separated pattern. buildVibrationWaveform() turns them into the
@@ -56,6 +60,10 @@ data class SoundProfile(
     companion object {
         /** Upper bound of the "number of buzzes" / "repetitions" sliders. */
         const val MAX_COUNT = 10
+
+        /** F.10 — the alarm volume slider never reaches silence. */
+        const val MIN_VOLUME_PERCENT = 1
+        const val MAX_VOLUME_PERCENT = 100
 
         /** Buzz-On / Buzz-Off slider stops, in ms (S, M, L, XL, XXL). */
         val BUZZ_LENGTH_OPTIONS = listOf(250, 500, 1000, 2000, 3000)
