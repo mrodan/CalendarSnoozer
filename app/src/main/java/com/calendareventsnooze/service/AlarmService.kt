@@ -11,12 +11,9 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.VibrationEffect
 import android.os.Vibrator
-import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
@@ -27,7 +24,9 @@ import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.util.getAlarmEvent
+import com.calendareventsnooze.util.playOnce
 import com.calendareventsnooze.util.putAlarmEvent
+import com.calendareventsnooze.util.vibratorOf
 
 /**
  * Owns every currently-ringing alarm.
@@ -47,14 +46,20 @@ class AlarmService : Service() {
         /** Resolves ONE alarm (by [EXTRA_ALARM_ID]) and resumes the one beneath it. */
         const val ACTION_RESOLVE_ALARM = "com.calendareventsnooze.ACTION_RESOLVE_ALARM"
 
+        /**
+         * B.6 — the user swiped the active-alarm notification away. Since Android
+         * 13 a foreground-service notification is dismissible no matter what
+         * `setOngoing` says, so the only way to keep it up until the alarm is
+         * actually resolved is to notice the dismissal and post it again.
+         */
+        const val ACTION_REASSERT_NOTIFICATION =
+            "com.calendareventsnooze.ACTION_REASSERT_NOTIFICATION"
+
         /** Broadcast: no alarms remain, the takeover screen may close. */
         const val ACTION_ALARM_RESOLVED = "com.calendareventsnooze.ALARM_RESOLVED"
 
         const val EXTRA_ALARM_ID = "ces_resolved_alarm_id"
         const val ACTIVE_ALARM_NOTIF_ID = 1002
-
-        /** Vibrator repeat index meaning "play the waveform once". */
-        private const val NO_REPEAT = -1
 
         fun cancelActiveAlarmNotification(context: Context) {
             context.getSystemService(NotificationManager::class.java)
@@ -108,6 +113,13 @@ class AlarmService : Service() {
             ACTION_RESOLVE_ALARM -> {
                 val alarmId = intent.getStringExtra(EXTRA_ALARM_ID)
                 if (alarmId != null) resolveAndAdvance(alarmId) else stopEverything()
+                return START_STICKY
+            }
+            ACTION_REASSERT_NOTIFICATION -> {
+                // B.6 — swiped away while an alarm is still unresolved: put it back.
+                // Nothing on the stack means the swipe raced a resolution, so let it go.
+                val top = alarmStack.lastOrNull()
+                if (top != null) startForeground(ACTIVE_ALARM_NOTIF_ID, buildAlarmNotification(top))
                 return START_STICKY
             }
         }
@@ -238,12 +250,25 @@ class AlarmService : Service() {
         )
     }
 
+    /**
+     * B.6 — fires when the user swipes the notification away, so the service can
+     * put it straight back while the alarm is still unresolved.
+     */
+    private fun reassertPendingIntent(): PendingIntent {
+        val intent = Intent(this, AlarmService::class.java)
+            .setAction(ACTION_REASSERT_NOTIFICATION)
+        return PendingIntent.getService(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
     private fun buildAlarmNotification(alarmEvent: AlarmEvent): Notification {
         val pi = alarmPendingIntent(alarmEvent)
         val waiting = alarmStack.size - 1
         val subText = if (waiting > 0) "+$waiting more alarm${if (waiting > 1) "s" else ""} waiting"
                       else null
-        return NotificationCompat.Builder(this, "ces_alarm_active")
+        val notification = NotificationCompat.Builder(this, "ces_alarm_active")
             .setContentTitle("⚠ Calendar Alarm Active")
             .setContentText(alarmEvent.eventTitle.ifBlank { "Tap to open the alarm" })
             .setSubText(subText)
@@ -252,10 +277,18 @@ class AlarmService : Service() {
             .setFullScreenIntent(pi, true)
             .setOngoing(true)
             .setAutoCancel(false)
+            .setDeleteIntent(reassertPendingIntent())
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
+
+        // B.6 — three layers, because none of them is sufficient alone:
+        // ongoing hides the swipe affordance, NO_CLEAR survives "Clear all", and
+        // the delete intent re-posts if the system lets it through anyway
+        // (Android 13+ allows dismissing foreground-service notifications).
+        notification.flags = notification.flags or Notification.FLAG_NO_CLEAR
+        return notification
     }
 
     // ------------------------------------------------------------------
@@ -300,19 +333,11 @@ class AlarmService : Service() {
     }
 
     private fun startVibration(profile: SoundProfile) {
-        vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-            (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-        else @Suppress("DEPRECATION") getSystemService(VIBRATOR_SERVICE) as Vibrator
-
+        vibrator = vibratorOf(this)
         // F.7 — the buzz/pattern sliders are expanded into one finite waveform,
         // repetitions included, so the vibrator's repeat index stays at
         // NO_REPEAT (it would otherwise loop forever).
-        val pattern = profile.buildVibrationWaveform()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            vibrator?.vibrate(VibrationEffect.createWaveform(pattern, NO_REPEAT))
-        else @Suppress("DEPRECATION")
-            vibrator?.vibrate(pattern, NO_REPEAT)
+        vibrator?.playOnce(profile.buildVibrationWaveform())
     }
 
     private fun stopSoundAndVibration() {
