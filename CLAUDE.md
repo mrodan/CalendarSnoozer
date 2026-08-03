@@ -27,6 +27,15 @@ Install to the connected phone:
 & "C:\Users\droda\AppData\Local\Android\Sdk\platform-tools\adb.exe" install -r "C:\Users\droda\Documents\CalendarEventSnoozeV3\app\build\outputs\apk\debug\app-debug.apk"
 ```
 
+**Release builds** are signed from `keystore.properties` + `calendar-snoozer-release.jks`
+in the repo root. Both are gitignored, so a fresh clone builds debug fine and
+only `assembleRelease` is unavailable. **If the keystore is lost, no future
+build can update an installed copy in place** — back it up.
+
+A release APK and a debug APK **cannot replace each other**: different signing
+keys, so the install fails with a signature mismatch and the app must be
+uninstalled first, which wipes all saved settings.
+
 > ⚠️ **The leading `&` is required.** The user's "Run in Terminal" button uses
 > PowerShell, where a command starting with a quoted path silently fails to run
 > without the call operator. Always give shell commands in PowerShell form.
@@ -164,7 +173,19 @@ foreground in `mipmap-*/ic_launcher_foreground.png` is the supplied art scaled
 to 78.3% for exactly this reason; re-exporting it at "full size" will clip it
 again.
 
-**12. The app is named "Calendar Snoozer" but the package is not.**
+**12. `USE_FULL_SCREEN_INTENT` is revocable and silently degrades the takeover.**
+Since Android 14 the user can turn it off per app. Without it the alarm never
+takes over the screen — it becomes an ordinary heads-up notification with no
+error anywhere. It is checked in the Permissions card for exactly that reason;
+don't drop it from `allGranted`.
+
+**13. Don't set `statusBarColor` / `navigationBarColor`.**
+Both are deprecated and **ignored from Android 15 onward** for targetSdk 35.
+The app calls `enableEdgeToEdge()` and lets the M3 top app bar paint the
+status-bar area, which behaves identically on every version. Re-adding those
+setters "to fix" the bar only works on Android 14 and misleads on newer ones.
+
+**14. The app is named "Calendar Snoozer" but the package is not.**
 `applicationId`, the `com.calendareventsnooze` package and every class name keep
 the old spelling on purpose — renaming them would orphan every saved
 SharedPreference and scheduled alarm. Only `app_name` changed.
