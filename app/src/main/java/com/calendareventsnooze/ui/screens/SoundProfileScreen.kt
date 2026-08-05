@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -257,6 +258,9 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         // ---- Sound ----
         SettingsSection("Sound") {
             SwitchRow("Enable sound alarm", soundEnabled) { soundEnabled = it }
+            // UI.16 — the rest of the section only matters once sound is on.
+            AnimatedVisibility(visible = soundEnabled) {
+            Column {
             Spacer(Modifier.height(Spacing.md))
             // F.10 — the ringtone's own title, at the same weight as the switch
             // label above, with the raw URI kept underneath for reference.
@@ -337,6 +341,8 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 onValueChange = { stopsAfterSeconds = it },
                 label = "Alarm Stops After (seconds) — 0 to keep sounding"
             )
+            }
+            }
         }
 
         Spacer(Modifier.height(Spacing.lg))
@@ -344,6 +350,10 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         // ---- Vibration ----
         SettingsSection("Vibration") {
             SwitchRow("Enable vibration", vibrationEnabled) { vibrationEnabled = it }
+            // UI.16 — the five sliders and the test button are irrelevant with
+            // vibration off.
+            AnimatedVisibility(visible = vibrationEnabled) {
+            Column {
             Spacer(Modifier.height(Spacing.lg))
 
             // F.7 — five sliders replace the raw comma-separated pattern field.
@@ -405,12 +415,18 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
             OptionSlider("Number of Pattern Repetitions", COUNT_LABELS, repetitionsIdx) {
                 repetitionsIdx = it
             }
+            }
+            }
         }
 
         Spacer(Modifier.height(Spacing.lg))
 
         // ---- Sequencing ----
         SettingsSection("Sequencing") {
+            // UI.16 — ordering only means anything when there are two things to
+            // order, so this collapses unless sound AND vibration are both on.
+            AnimatedVisibility(visible = soundEnabled && vibrationEnabled) {
+            Column {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 SegmentedButton(
                     selected = soundStartsFirst,
@@ -429,6 +445,8 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 onValueChange = { secondDelay = it },
                 label = "Delay before the second one starts (seconds)"
             )
+            }
+            }
         }
 
         Spacer(Modifier.height(Spacing.lg))
@@ -441,6 +459,9 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 autoDismissAction =
                     if (on) AutoDismissAction.SNOOZE else AutoDismissAction.DISMISS
             }
+            // UI.16 — none of these apply when auto-snooze is off.
+            AnimatedVisibility(visible = autoDismissAction == AutoDismissAction.SNOOZE) {
+            Column {
             Spacer(Modifier.height(Spacing.lg))
             NumberField(
                 value = autoDismissSeconds,
@@ -465,6 +486,8 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            }
+            }
         }
 
         Spacer(Modifier.height(Spacing.xl))
