@@ -125,6 +125,13 @@ Verified directly on the device, not an emulator.
 - [x] UI.15 Takeover content shifted down one row (spacer 80dp → 124dp = one `headlineMedium` line of 36sp plus the 8dp gap). Measured on device at 420dpi: the title top is now 389px, and the date/time row previously sat at 388.5px — so the title starts precisely where the time used to.
 - versionCode 3 / versionName 1.2. `build.gradle.kts` had drifted back to versionCode 1 while the phone carried 2, which blocked the install with `INSTALL_FAILED_VERSION_DOWNGRADE`.
 
+## Feedback round 11
+- [x] UI.16 Sound & Vibration collapses what does not apply yet, in all three sound modes. `AnimatedVisibility` hides the sound controls until "Enable sound alarm" is on, the five vibration sliders until "Enable vibration" is on, and the auto-snooze timings until "Auto-Snooze ON" is on. Sequencing collapses unless **both** sound and vibration are enabled — ordering only means something when there are two things to order. (The request said Sequencing's condition was "both", and the auto-snooze bullet read "expand if the Sound is enabled", which is a slip for auto-snooze; implemented on the auto-snooze switch.)
+- [x] F.13 The Manage sheet's "Open Calendar Event" no longer cancels the snooze — it is purely a shortcut to the event, and the alarm stays in the list and still fires. The "(DISMISSES ALARM)" second line went with it, since it would now be false. This reverses the F.12 behaviour from round 10; the takeover's own button is a separate path and was not affected.
+- [x] F.14 The takeover's "Open Calendar Event" button is replaced by an unchecked-by-default checkbox, **"Open Calendar Event After"**. Ticking it makes the *next* action — snooze or dismiss — also open the event; unticked, nothing extra happens. It no longer resolves the alarm on its own, so opening the event and snoozing are no longer mutually exclusive. `onSnooze`/`onDismiss` carry the flag so every exit honours it (four presets, Specify Time, Time & Date, Dismiss). The checkbox resets when a different alarm takes over the screen (B.6 stack). Auto-dismiss is unaffected — no user action, no follow-up.
+- versionCode 4 / versionName 1.3.
+- The checkbox sits where the old button did, below Dismiss. It has to be set *before* the action it modifies, which is above it — worth watching in use.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution
