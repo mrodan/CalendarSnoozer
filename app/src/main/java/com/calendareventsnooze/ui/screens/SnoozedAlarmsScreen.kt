@@ -223,15 +223,12 @@ fun ManageSnoozeSheet(
             )
         ) { Text("Cancel snooze", style = MaterialTheme.typography.labelLarge) }
 
-        // F.12 — same colours and wording as the takeover's button, and the same
-        // effect: opening the event resolves the alarm, so the snooze is
-        // cancelled rather than left to fire again later.
+        // F.13 — purely a shortcut to the event. It deliberately leaves the
+        // snooze alone: the alarm stays in the Snoozed Alarms list and will
+        // still fire at its scheduled time.
         Spacer(Modifier.height(Spacing.md))
         Button(
             onClick = {
-                AlarmScheduler.cancelAlarm(context, record.alarmId)
-                AppPrefs.removeSnoozedAlarm(context, record.alarmId)
-                AppPrefs.resetAutoSnoozeCount(context, record.alarmId)
                 CalendarLauncher.open(
                     context = context,
                     eventId = record.eventId,
@@ -247,10 +244,9 @@ fun ManageSnoozeSheet(
             colors = ButtonDefaults.buttonColors(
                 containerColor = AlarmCalendar, contentColor = AlarmOnCalendar)
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("OPEN CALENDAR EVENT", style = MaterialTheme.typography.labelLarge)
-                Text("(DISMISSES ALARM)", style = MaterialTheme.typography.bodySmall)
-            }
+            // No "(DISMISSES ALARM)" line here — unlike the takeover, this one
+            // leaves the snooze in place, so the caveat would be a lie.
+            Text("OPEN CALENDAR EVENT", style = MaterialTheme.typography.labelLarge)
         }
 
         Spacer(Modifier.height(Spacing.sm))
