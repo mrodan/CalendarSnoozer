@@ -2,6 +2,7 @@ package com.calendareventsnooze.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,8 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -61,6 +65,7 @@ import com.calendareventsnooze.ui.theme.AlarmOnSurfaceMuted
 import com.calendareventsnooze.ui.theme.AlarmOutline
 import com.calendareventsnooze.ui.theme.AlarmPrimary
 import com.calendareventsnooze.ui.theme.AlarmSecondary
+import com.calendareventsnooze.ui.theme.AlarmSurface
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.combineDateAndTime
 import com.calendareventsnooze.util.formatEventTime
@@ -82,13 +87,16 @@ fun AlarmScreen(
     alarmEvent: AlarmEvent,
     presets: List<SnoozePreset>,
     autoDismissSeconds: Int,
-    onOpenCalendar: () -> Unit,
-    onSnooze: (scheduledTimeMs: Long) -> Unit,
-    onDismiss: () -> Unit,
+    onSnooze: (scheduledTimeMs: Long, openCalendar: Boolean) -> Unit,
+    onDismiss: (openCalendar: Boolean) -> Unit,
     onAutoDismissTimeout: () -> Unit
 ) {
     var showSpecifyTime by remember { mutableStateOf(false) }
     var showTimeAndDate by remember { mutableStateOf(false) }
+    // F.14 — replaces the old "Open Calendar Event" button. Ticking it makes the
+    // next snooze or dismiss also open the event; it never resolves the alarm on
+    // its own. Resets whenever a different alarm takes over the screen.
+    var openCalendarAfter by remember(alarmEvent.alarmId) { mutableStateOf(false) }
 
     // Countdown restarts whenever a different alarm takes over the screen.
     var secondsLeft by remember(alarmEvent.alarmId) { mutableIntStateOf(autoDismissSeconds) }
@@ -160,13 +168,13 @@ fun AlarmScreen(
         // Preset buttons in a 2-column grid
         val safePresets = presets.take(4)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            PresetButton(safePresets.getOrNull(0), Modifier.weight(1f), onSnooze)
-            PresetButton(safePresets.getOrNull(1), Modifier.weight(1f), onSnooze)
+            PresetButton(safePresets.getOrNull(0), Modifier.weight(1f)) { onSnooze(it, openCalendarAfter) }
+            PresetButton(safePresets.getOrNull(1), Modifier.weight(1f)) { onSnooze(it, openCalendarAfter) }
         }
         Spacer(Modifier.height(Spacing.md))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            PresetButton(safePresets.getOrNull(2), Modifier.weight(1f), onSnooze)
-            PresetButton(safePresets.getOrNull(3), Modifier.weight(1f), onSnooze)
+            PresetButton(safePresets.getOrNull(2), Modifier.weight(1f)) { onSnooze(it, openCalendarAfter) }
+            PresetButton(safePresets.getOrNull(3), Modifier.weight(1f)) { onSnooze(it, openCalendarAfter) }
         }
 
         Spacer(Modifier.height(Spacing.md))
@@ -208,7 +216,7 @@ fun AlarmScreen(
         Spacer(Modifier.height(Spacing.lg))
 
         Button(
-            onClick = onDismiss,
+            onClick = { onDismiss(openCalendarAfter) },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(72.dp),
@@ -222,26 +230,34 @@ fun AlarmScreen(
                 fontWeight = FontWeight.Bold)
         }
 
-        // UI.3 — Open Calendar Event sits below Dismiss, with the "(DISMISSES
-        // ALARM)" caveat centred on its own line beneath the label.
+        // F.14 — replaces the old "Open Calendar Event" button, which resolved
+        // the alarm as a side effect. This only arms the follow-up: whichever
+        // action the user then takes, snooze or dismiss, also opens the event.
         Spacer(Modifier.height(Spacing.lg))
-        Button(
-            onClick = onOpenCalendar,
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(72.dp),
-            shape = MaterialTheme.shapes.large,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = AlarmCalendar, contentColor = AlarmOnCalendar)
+                .clip(MaterialTheme.shapes.large)
+                .background(AlarmSurface)
+                .clickable { openCalendarAfter = !openCalendarAfter }
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("OPEN CALENDAR EVENT",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold)
-                Text("(DISMISSES ALARM)",
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center)
-            }
+            Checkbox(
+                checked = openCalendarAfter,
+                onCheckedChange = { openCalendarAfter = it },
+                colors = CheckboxDefaults.colors(
+                    checkedColor = AlarmCalendar,
+                    checkmarkColor = AlarmOnCalendar,
+                    uncheckedColor = AlarmOnSurfaceMuted
+                )
+            )
+            Spacer(Modifier.size(Spacing.sm))
+            Text(
+                "Open Calendar Event After",
+                color = AlarmOnSurface,
+                style = MaterialTheme.typography.titleMedium
+            )
         }
         Spacer(Modifier.height(Spacing.xl))
     }
@@ -251,7 +267,10 @@ fun AlarmScreen(
             onDismiss = { showSpecifyTime = false },
             onConfirm = { totalMinutes ->
                 showSpecifyTime = false
-                onSnooze(System.currentTimeMillis() + totalMinutes * 60_000L)
+                onSnooze(
+                    System.currentTimeMillis() + totalMinutes * 60_000L,
+                    openCalendarAfter
+                )
             }
         )
     }
@@ -261,7 +280,7 @@ fun AlarmScreen(
             onDismiss = { showTimeAndDate = false },
             onConfirm = { ms ->
                 showTimeAndDate = false
-                onSnooze(ms)
+                onSnooze(ms, openCalendarAfter)
             }
         )
     }

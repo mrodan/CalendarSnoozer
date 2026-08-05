@@ -98,9 +98,10 @@ class AlarmActivity : ComponentActivity() {
                         alarmEvent = event,
                         presets = presets,
                         autoDismissSeconds = autoDismissSeconds,
-                        onOpenCalendar = { performOpenCalendar(event) },
-                        onSnooze = { scheduledTimeMs -> performSnooze(scheduledTimeMs, event) },
-                        onDismiss = { performDismiss(event) },
+                        onSnooze = { scheduledTimeMs, openCalendar ->
+                            performSnooze(scheduledTimeMs, event, openCalendar)
+                        },
+                        onDismiss = { openCalendar -> performDismiss(event, openCalendar) },
                         // The AlarmService owns auto-dismiss; it resolves the alarm and
                         // either closes this screen or shows the next one.
                         onAutoDismissTimeout = { }
@@ -207,7 +208,11 @@ class AlarmActivity : ComponentActivity() {
         AlarmService.resolveAlarm(applicationContext, alarmEvent.alarmId)
     }
 
-    private fun performSnooze(scheduledTimeMs: Long, alarmEvent: AlarmEvent) {
+    private fun performSnooze(
+        scheduledTimeMs: Long,
+        alarmEvent: AlarmEvent,
+        openCalendar: Boolean
+    ) {
         AlarmScheduler.scheduleAt(applicationContext, alarmEvent, scheduledTimeMs)
         AppPrefs.saveSnoozedAlarm(applicationContext, SnoozedAlarmRecord(
             alarmId         = alarmEvent.alarmId,
@@ -218,19 +223,23 @@ class AlarmActivity : ComponentActivity() {
             scheduledTimeMs = scheduledTimeMs
         ))
         finishAlarm(alarmEvent)
+        if (openCalendar) openCalendarThenFinish(alarmEvent)
     }
 
-    private fun performDismiss(alarmEvent: AlarmEvent) {
+    private fun performDismiss(alarmEvent: AlarmEvent, openCalendar: Boolean) {
         AppPrefs.removeSnoozedAlarm(applicationContext, alarmEvent.alarmId)
         AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
         finishAlarm(alarmEvent)
+        if (openCalendar) openCalendarThenFinish(alarmEvent)
     }
 
-    private fun performOpenCalendar(alarmEvent: AlarmEvent) {
-        AppPrefs.removeSnoozedAlarm(applicationContext, alarmEvent.alarmId)
-        AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
-        finishAlarm(alarmEvent)
-
+    /**
+     * F.14 — the follow-up when "Open Calendar Event After" was ticked. The
+     * alarm has already been resolved by the caller; this only takes the user to
+     * the event. The keyguard has to come down first or the calendar would open
+     * behind the lock screen.
+     */
+    private fun openCalendarThenFinish(alarmEvent: AlarmEvent) {
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
             override fun onDismissSucceeded() { launchCalendar(alarmEvent); finish() }
