@@ -47,10 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.calendareventsnooze.R
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.ui.theme.AlarmBackground
@@ -66,6 +68,8 @@ import com.calendareventsnooze.ui.theme.AlarmOutline
 import com.calendareventsnooze.ui.theme.AlarmPrimary
 import com.calendareventsnooze.ui.theme.AlarmSecondary
 import com.calendareventsnooze.ui.theme.AlarmSurface
+import com.calendareventsnooze.ui.theme.LightOnSecondaryContainer
+import com.calendareventsnooze.ui.theme.LightSecondaryContainer
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.combineDateAndTime
 import com.calendareventsnooze.util.formatEventTime
@@ -233,30 +237,43 @@ fun AlarmScreen(
         // F.14 — replaces the old "Open Calendar Event" button, which resolved
         // the alarm as a side effect. This only arms the follow-up: whichever
         // action the user then takes, snooze or dismiss, also opens the event.
+        //
+        // UI.17 — carries the same colours as the "Fire test alarm now" button.
+        // Those are taken from the *light* scheme rather than the live one
+        // because the takeover keeps a fixed palette whatever the system theme
+        // is doing, so this must not flip with it.
         Spacer(Modifier.height(Spacing.lg))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(MaterialTheme.shapes.large)
-                .background(AlarmSurface)
+                .background(LightSecondaryContainer)
                 .clickable { openCalendarAfter = !openCalendarAfter }
                 .padding(horizontal = Spacing.lg, vertical = Spacing.md),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
             Checkbox(
                 checked = openCalendarAfter,
                 onCheckedChange = { openCalendarAfter = it },
                 colors = CheckboxDefaults.colors(
-                    checkedColor = AlarmCalendar,
-                    checkmarkColor = AlarmOnCalendar,
-                    uncheckedColor = AlarmOnSurfaceMuted
+                    checkedColor = LightOnSecondaryContainer,
+                    checkmarkColor = LightSecondaryContainer,
+                    uncheckedColor = LightOnSecondaryContainer
                 )
             )
             Spacer(Modifier.size(Spacing.sm))
             Text(
-                "Open Calendar Event After",
-                color = AlarmOnSurface,
+                "Also Open Calendar Event",
+                color = LightOnSecondaryContainer,
                 style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(Modifier.size(Spacing.sm))
+            Icon(
+                painter = painterResource(R.drawable.ic_calendar_snooze),
+                contentDescription = null,
+                tint = LightOnSecondaryContainer,
+                modifier = Modifier.size(28.dp)
             )
         }
         Spacer(Modifier.height(Spacing.xl))
