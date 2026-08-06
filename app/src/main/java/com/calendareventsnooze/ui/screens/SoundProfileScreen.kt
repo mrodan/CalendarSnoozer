@@ -422,10 +422,14 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         Spacer(Modifier.height(Spacing.lg))
 
         // ---- Sequencing ----
-        SettingsSection("Sequencing") {
+        val sequencingApplies = soundEnabled && vibrationEnabled
+        SettingsSection(
+            "Sequencing",
+            hint = if (sequencingApplies) null else "opens when Sound + Vibration are ON"
+        ) {
             // UI.16 — ordering only means anything when there are two things to
             // order, so this collapses unless sound AND vibration are both on.
-            AnimatedVisibility(visible = soundEnabled && vibrationEnabled) {
+            AnimatedVisibility(visible = sequencingApplies) {
             Column {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 SegmentedButton(
@@ -452,7 +456,7 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         Spacer(Modifier.height(Spacing.lg))
 
         // ---- Auto-snooze / auto-dismiss ----
-        SettingsSection("Auto-snooze / auto-dismiss") {
+        SettingsSection("Auto-Snooze / Auto-Dismiss") {
             // UI.7 — one switch replaces the "Auto-snooze and retry" /
             // "Dismiss immediately (no retry)" radio pair.
             SwitchRow("Auto-Snooze ON", autoDismissAction == AutoDismissAction.SNOOZE) { on ->
@@ -513,6 +517,9 @@ private fun nearestIndex(options: List<Int>, value: Int): Int {
 @Composable
 private fun SettingsSection(
     title: String,
+    // UI.18 — optional note beside the heading, used by Sequencing to explain
+    // itself while collapsed.
+    hint: String? = null,
     // ColumnScope so section contents can use Modifier.align (UI.14).
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -523,11 +530,25 @@ private fun SettingsSection(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.padding(Spacing.lg)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    // UI.18 — 25% larger than the M3 titleMedium these used to be.
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = MaterialTheme.typography.titleMedium.fontSize * 1.25f
+                    ),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                if (hint != null) {
+                    Spacer(Modifier.size(Spacing.sm))
+                    Text(
+                        hint,
+                        // Matches the delay field's label beneath it.
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             Spacer(Modifier.height(Spacing.md))
             content()
         }

@@ -33,6 +33,13 @@ object AppPrefs {
     const val DEFAULT_FADE_IN_SECONDS = 0
     const val DEFAULT_SOUND_STOPS_AFTER_SECONDS = 0
 
+    /**
+     * UI.18 — the gap between the first and second output. It applies to every
+     * mode so that whenever Sequencing does become relevant (sound *and*
+     * vibration both on) it already reads "Sound first, 5 seconds".
+     */
+    const val DEFAULT_SECOND_START_DELAY_SECONDS = 5
+
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -139,7 +146,7 @@ object AppPrefs {
             delayBetweenPatternsMs = DEFAULT_PATTERN_DELAY_MS,
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
-            secondStartDelaySeconds = 0,
+            secondStartDelaySeconds = DEFAULT_SECOND_START_DELAY_SECONDS,
             autoDismissSeconds = 60,
             autoDismissAction = AutoDismissAction.SNOOZE,
             autoDismissSnoozeMinutes = 10,
@@ -159,7 +166,7 @@ object AppPrefs {
             delayBetweenPatternsMs = DEFAULT_PATTERN_DELAY_MS,
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
-            secondStartDelaySeconds = 0,
+            secondStartDelaySeconds = DEFAULT_SECOND_START_DELAY_SECONDS,
             autoDismissSeconds = 60,
             autoDismissAction = AutoDismissAction.SNOOZE,
             autoDismissSnoozeMinutes = 10,
@@ -179,7 +186,7 @@ object AppPrefs {
             delayBetweenPatternsMs = DEFAULT_PATTERN_DELAY_MS,
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
-            secondStartDelaySeconds = 0,
+            secondStartDelaySeconds = DEFAULT_SECOND_START_DELAY_SECONDS,
             autoDismissSeconds = 30,
             autoDismissAction = AutoDismissAction.SNOOZE,
             autoDismissSnoozeMinutes = 5,
