@@ -221,7 +221,7 @@ fun ManageSnoozeSheet(
                 containerColor = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer
             )
-        ) { Text("Cancel snooze", style = MaterialTheme.typography.labelLarge) }
+        ) { Text("CANCEL SNOOZE", style = MaterialTheme.typography.labelLarge) }
 
         // F.13 — purely a shortcut to the event. It deliberately leaves the
         // snooze alone: the alarm stays in the Snoozed Alarms list and will

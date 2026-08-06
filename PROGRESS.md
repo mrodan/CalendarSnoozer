@@ -132,6 +132,14 @@ Verified directly on the device, not an emulator.
 - versionCode 4 / versionName 1.3.
 - The checkbox sits where the old button did, below Dismiss. It has to be set *before* the action it modifies, which is above it — worth watching in use.
 
+## Feedback round 12 — verified on the Pixel 10a / Android 17
+- [x] UI.17 The takeover's checkbox row now carries the "Fire test alarm now" colours, reads **"Also Open Calendar Event"**, and ends with the calendar-and-Zs mark tinted to the label colour; checkbox, text and icon are centred as a group. The supplied SVG became `res/drawable/ic_calendar_snooze.xml` — every stroke and fill stays black on purpose because it is always drawn through `Icon(tint = …)`. The colours are taken from the **light** scheme constants rather than the live scheme: the takeover keeps a fixed palette whatever the system theme is doing, so it must not flip with it.
+- [x] UI.18.1 First-install presets. Only `secondStartDelaySeconds` actually changed (0 → 5, now `DEFAULT_SECOND_START_DELAY_SECONDS`); the rest already matched. SOUND_ON = sound + vibration + auto-snooze, sound first, 5s. VIBRATE = vibration + auto-snooze. SILENT = auto-snooze only. Every mode carries "sound first, 5s" so Sequencing already reads that whenever it becomes relevant. **Defaults apply to fresh installs only** — existing profiles keep their saved values, so this was verified by code inspection rather than by wiping the phone.
+- [x] UI.18.2 Collapsed Sequencing shows "opens when Sound + Vibration are ON" beside its heading, in the same `bodySmall` / `onSurfaceVariant` as the delay field's label. `SettingsSection` gained an optional `hint`.
+- [x] UI.18.3 Section headings are 25% larger (titleMedium scaled ×1.25, i.e. 16sp → 20sp) and the last one is now "Auto-Snooze / Auto-Dismiss".
+- [x] UI.19 "CANCEL SNOOZE" in the Manage sheet.
+- versionCode 5 / versionName 1.4.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution
