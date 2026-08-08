@@ -309,6 +309,11 @@ Non-obvious testing facts:
   open-specific-event path cannot be verified there — it needs the real phone.
 - `uiautomator dump` + regex on the XML is more reliable than screenshots for
   assertions; use screenshots for visual checks only (they cost a lot of context).
+- **Don't regex the whole UI dump for a screen's identity.** The tab labels are
+  in every dump, so matching "Snooze Buttons" proves nothing about which tab is
+  showing. Match on content unique to that screen ("No snoozed alarms",
+  "Changes are saved automatically.") — a tab-label match once looked exactly
+  like a broken back button that worked fine.
 - **`uiautomator dump` does not capture Compose popups.** A dropdown menu,
   `AlertDialog` content or `ModalBottomSheet` rendered in its own window can be
   fully open on screen and completely absent from the XML. An "it didn't open"
