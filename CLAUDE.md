@@ -210,6 +210,13 @@ for source edits. If a bulk rewrite is unavoidable, use
 `[System.IO.File]::ReadAllLines` / `WriteAllLines` with an explicit
 `UTF8Encoding($false)`, then grep for `â€` to confirm.
 
+**15a. Changing a preset default changes nothing on an existing install.**
+`AppPrefs.defaultSoundProfile()` is only consulted when no profile has been
+saved for that ringer mode. Every "the preset values should be X" request
+(UI.18.1, UI.25.3, UI.25.4) therefore only shows up on a **fresh install** —
+verify it by `adb uninstall` + install on the emulator, never by looking at a
+phone that has been used. Say so when reporting, or it reads as not done.
+
 **15. The alarm volume slider changes a system setting.**
 F.10 overrides the phone's alarm volume with
 `AudioManager.setStreamVolume(STREAM_ALARM, …)` — `MediaPlayer.setVolume` only
@@ -217,6 +224,11 @@ scales *within* the current stream volume, so it cannot make the alarm louder
 than the phone is set to. The previous level is captured once per alarm and
 restored in `stopSoundAndVibration()`, which every stop path runs. Any new exit
 path must keep going through there or the user's volume stays overridden.
+
+`util/SoundTest.kt` (UI.25.3's "Test Alarm Sound") carries the same hazard for
+the same reason, and `SoundTest.stop()` is its single exit — Stop Test, the
+completion callback and the screen's `DisposableEffect` all call it. Add a
+fourth way to end a test and it must call `stop()` too.
 
 **16. The app is named "Calendar Snoozer" but the package is not.**
 `applicationId`, the `com.calendareventsnooze` package and every class name keep

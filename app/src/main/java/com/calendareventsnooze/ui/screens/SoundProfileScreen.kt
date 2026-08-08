@@ -10,6 +10,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -27,10 +28,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Vibration
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -50,6 +53,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -60,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,10 +74,14 @@ import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.model.VibrationPreset
+import com.calendareventsnooze.ui.TAB_LABEL_SCALE
 import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
+import com.calendareventsnooze.util.SoundTest
 import com.calendareventsnooze.util.playOnce
 import com.calendareventsnooze.util.vibratorOf
+import com.calendareventsnooze.util.waveformDurationMs
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -122,11 +131,11 @@ fun SoundProfileScreen(selectedSubTab: Int, onSubTabChange: (Int) -> Unit) {
                     text = {
                         Text(
                             title,
-                            // UI.27 — 15% larger than the M3 titleSmall these
-                            // used to be (the primary tabs went up 20%).
+                            // UI.27.4 — the primary tab row uses the same
+                            // scale, from the same constant.
                             style = MaterialTheme.typography.titleSmall.copy(
-                                fontSize =
-                                    MaterialTheme.typography.titleSmall.fontSize * 1.15f
+                                fontSize = MaterialTheme.typography.titleSmall.fontSize *
+                                    TAB_LABEL_SCALE
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -158,7 +167,11 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     var soundUri by remember(mode) { mutableStateOf(initial.soundUri) }
     // F.10 — the ringtone's display name ("Castle"), resolved from the URI.
     val soundTitle = remember(soundUri) { ringtoneTitle(context, soundUri) }
-    var alarmVolume by remember(mode) { mutableIntStateOf(initial.alarmVolumePercent) }
+    // UI.25.5 — the slider only stops on multiples of 10, so a value stored
+    // before that snaps onto the nearest one.
+    var alarmVolume by remember(mode) {
+        mutableIntStateOf(SoundProfile.snapVolume(initial.alarmVolumePercent))
+    }
     var soundDelaySeconds by remember(mode) {
         mutableStateOf(initial.soundDelaySeconds.toString())
     }
@@ -178,6 +191,31 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     var vibrationEnabled by remember(mode) { mutableStateOf(initial.vibrationEnabled) }
     var vibrationPreset by remember(mode) { mutableStateOf(initial.vibrationPreset) }
     var showBuzzDialog by remember(mode) { mutableStateOf(false) }
+
+    // F.18 — a test in progress turns its own button into "Stop Test". The two
+    // Test Vibration buttons (section and dialog) share this one flag, so they
+    // can never disagree about whether something is buzzing.
+    var vibrationTesting by remember(mode) { mutableStateOf(false) }
+    var vibrationTestMs by remember(mode) { mutableStateOf(0L) }
+    var soundTesting by remember(mode) { mutableStateOf(false) }
+    val soundTest = remember(mode) { SoundTest(context) }
+
+    // The vibrator has no completion callback, so the button reverts on the
+    // waveform's own duration.
+    LaunchedEffect(vibrationTesting, vibrationTestMs) {
+        if (!vibrationTesting) return@LaunchedEffect
+        delay(vibrationTestMs)
+        vibrationTesting = false
+    }
+
+    // Leaving the screen has to stop the test, or the sound keeps playing and
+    // the phone's alarm volume stays overridden (trap 15).
+    DisposableEffect(mode) {
+        onDispose {
+            soundTest.stop()
+            runCatching { vibratorOf(context).cancel() }
+        }
+    }
 
     // UI.25 — each of the five timings is now behind its own switch. The switch
     // state is held separately rather than derived from "value > 0", so clearing
@@ -349,13 +387,17 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
 
             // F.10 — playback shaping.
             Spacer(Modifier.height(Spacing.lg))
-            Text("Alarm Volume", style = MaterialTheme.typography.titleSmall)
+            // UI.25.1 — same weight as the switch labels below it.
+            Text("Alarm Volume", style = MaterialTheme.typography.bodyLarge)
             // UI.25 — the caption explains the slider, so it reads before it
-            // rather than after.
+            // rather than after. UI.25.1 gives it the error role, the same
+            // colour Force Stop uses, because it is a warning about changing a
+            // phone-wide setting rather than an ordinary hint.
+            Spacer(Modifier.height(Spacing.sm))
             Text(
                 "Overrides the phone's alarm volume while this alarm rings.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.error
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -363,12 +405,12 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
             ) {
                 Slider(
                     value = alarmVolume.toFloat(),
-                    onValueChange = {
-                        alarmVolume = it.roundToInt().coerceIn(
-                            SoundProfile.MIN_VOLUME_PERCENT, SoundProfile.MAX_VOLUME_PERCENT)
-                    },
+                    onValueChange = { alarmVolume = SoundProfile.snapVolume(it.roundToInt()) },
                     valueRange = SoundProfile.MIN_VOLUME_PERCENT.toFloat()..
                         SoundProfile.MAX_VOLUME_PERCENT.toFloat(),
+                    // UI.25.5 — stops every 10%, so the value can never land
+                    // between them.
+                    steps = VOLUME_STEPS,
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.size(Spacing.md))
@@ -378,6 +420,21 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                     color = MaterialTheme.colorScheme.primary
                 )
             }
+
+            // UI.25.3 — hear the chosen sound at the chosen volume without
+            // firing an alarm, the way Test Vibration works for the buzz.
+            Spacer(Modifier.height(Spacing.md))
+            TestButton(
+                label = "Test Alarm Sound",
+                icon = Icons.Outlined.Alarm,
+                running = soundTesting,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                onStart = {
+                    val profile = AppPrefs.getSoundProfile(context, mode)
+                    soundTesting = soundTest.start(profile) { soundTesting = false }
+                },
+                onStop = { soundTest.stop(); soundTesting = false }
+            )
 
             // UI.25 — each timing is behind its own switch; the box only
             // appears once it is asked for.
@@ -447,26 +504,28 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
             // firing a whole alarm. UI.25 moves it directly above the timing
             // switches, and it now tests whichever character is selected.
             Spacer(Modifier.height(Spacing.lg))
-            FilledTonalButton(
-                onClick = {
-                    vibratorOf(context).playOnce(
-                        testWaveform(
-                            preset = vibrationPreset,
-                            buzzOnIdx = buzzOnIdx,
-                            buzzOffIdx = buzzOffIdx,
-                            buzzes = buzzesIdx + 1,
-                            patternDelayIdx = patternDelayIdx
-                        )
-                    )
-                },
+            TestButton(
+                label = "Test Vibration",
+                icon = Icons.Outlined.Vibration,
+                running = vibrationTesting,
                 modifier = Modifier.align(Alignment.CenterHorizontally), // UI.14
-                shape = MaterialTheme.shapes.large
-            ) {
-                Icon(Icons.Outlined.Vibration, contentDescription = null,
-                    modifier = Modifier.size(18.dp))
-                Spacer(Modifier.size(Spacing.sm))
-                Text("Test Vibration", style = MaterialTheme.typography.labelLarge)
-            }
+                onStart = {
+                    val waveform = testWaveform(
+                        preset = vibrationPreset,
+                        buzzOnIdx = buzzOnIdx,
+                        buzzOffIdx = buzzOffIdx,
+                        buzzes = buzzesIdx + 1,
+                        patternDelayIdx = patternDelayIdx
+                    )
+                    vibratorOf(context).playOnce(waveform)
+                    vibrationTestMs = waveformDurationMs(waveform)
+                    vibrationTesting = true
+                },
+                onStop = {
+                    runCatching { vibratorOf(context).cancel() }
+                    vibrationTesting = false
+                }
+            )
 
             // UI.22 / UI.25 — the timings that mirror the sound section's.
             Spacer(Modifier.height(Spacing.lg))
@@ -497,6 +556,26 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 buzzesIdx = buzzesIdx, onBuzzes = { buzzesIdx = it },
                 patternDelayIdx = patternDelayIdx, onPatternDelay = { patternDelayIdx = it },
                 repetitionsIdx = repetitionsIdx, onRepetitions = { repetitionsIdx = it },
+                // UI.25.3 — the same test button, so a slider can be felt
+                // without closing the dialog first. F.18 — it shares the
+                // section button's state, so both read the same.
+                testing = vibrationTesting,
+                onTest = {
+                    val waveform = testWaveform(
+                        preset = vibrationPreset,
+                        buzzOnIdx = buzzOnIdx,
+                        buzzOffIdx = buzzOffIdx,
+                        buzzes = buzzesIdx + 1,
+                        patternDelayIdx = patternDelayIdx
+                    )
+                    vibratorOf(context).playOnce(waveform)
+                    vibrationTestMs = waveformDurationMs(waveform)
+                    vibrationTesting = true
+                },
+                onStopTest = {
+                    runCatching { vibratorOf(context).cancel() }
+                    vibrationTesting = false
+                },
                 onDismiss = { showBuzzDialog = false }
             )
         }
@@ -615,6 +694,59 @@ private fun nearestIndex(options: List<Int>, value: Int): Int {
     return best
 }
 
+/** UI.25.5 — intermediate stops between 10% and 100%, i.e. 20…90. */
+private val VOLUME_STEPS =
+    (SoundProfile.MAX_VOLUME_PERCENT - SoundProfile.MIN_VOLUME_PERCENT) /
+        SoundProfile.VOLUME_STEP_PERCENT - 1
+
+/**
+ * F.18 — one button for both tests. While the test is running it turns into
+ * "Stop Test": outlined in its own label colour over a transparent background,
+ * so it reads as the same control in a different state rather than as a second
+ * button that appeared. It reverts by itself when the test ends — the caller
+ * flips [running] back, from the sound's completion callback or the waveform's
+ * measured duration.
+ */
+@Composable
+private fun TestButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    running: Boolean,
+    modifier: Modifier = Modifier,
+    onStart: () -> Unit,
+    onStop: () -> Unit
+) {
+    // The idle button is a FilledTonalButton; keeping its content colour while
+    // running is what makes the two states read as one control.
+    val contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+    if (running) {
+        OutlinedButton(
+            onClick = onStop,
+            modifier = modifier,
+            shape = MaterialTheme.shapes.large,
+            border = BorderStroke(1.dp, contentColor),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = contentColor
+            )
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(Spacing.sm))
+            Text("Stop Test", style = MaterialTheme.typography.labelLarge)
+        }
+    } else {
+        FilledTonalButton(
+            onClick = onStart,
+            modifier = modifier,
+            shape = MaterialTheme.shapes.large
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(Spacing.sm))
+            Text(label, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
 /** UI.25 — a switch that is off stores 0, whatever is still typed in its box. */
 private fun seconds(enabled: Boolean, text: String): Int =
     if (enabled) text.toIntOrNull()?.coerceAtLeast(0) ?: 0 else 0
@@ -729,6 +861,9 @@ private fun CustomBuzzDialog(
     buzzesIdx: Int, onBuzzes: (Int) -> Unit,
     patternDelayIdx: Int, onPatternDelay: (Int) -> Unit,
     repetitionsIdx: Int, onRepetitions: (Int) -> Unit,
+    testing: Boolean,
+    onTest: () -> Unit,
+    onStopTest: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -747,6 +882,15 @@ private fun CustomBuzzDialog(
                 Spacer(Modifier.height(Spacing.lg))
                 OptionSlider("Number of Pattern Repetitions", COUNT_LABELS,
                     repetitionsIdx, onRepetitions)
+                Spacer(Modifier.height(Spacing.lg))
+                TestButton(
+                    label = "Test Vibration",
+                    icon = Icons.Outlined.Vibration,
+                    running = testing,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    onStart = onTest,
+                    onStop = onStopTest
+                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
