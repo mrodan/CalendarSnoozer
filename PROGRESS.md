@@ -150,6 +150,13 @@ Verified directly on the device, not an emulator.
 - **Sequencing and the new per-output delays stack.** Sequencing sets which output leads and how long the other waits; UI.21/UI.22 add a further per-output offset. Both default to 0, so untouched profiles behave exactly as before. Worth watching — two controls now influence the same timing.
 - versionCode 6 / versionName 1.5.
 
+## Feedback round 14
+- [x] B.7 The takeover is no longer what you return to. `AlarmActivity` is `singleInstance`, so it owns a task of its own — and that task outlived the alarm: `finish()` left an empty task record in recents whose base intent was the alarm, so re-entering the app from the overview replayed it and the takeover reopened for an alarm that had already been snoozed, dismissed or opened in Calendar. Fixed at both ends: `excludeFromRecents` + `autoRemoveFromRecents` in the manifest keep the takeover's task out of the overview and drop it when it finishes, and every close path now calls `finishAndRemoveTask()` instead of `finish()`. The only CalendarSnoozer entry left in recents is MainActivity, so coming back lands on Home. **Nothing about B.1 changes** — while an alarm is still ringing the re-assert from `onUserLeaveHint`/`onStop` is unaffected; this only governs what survives *after* the alarm is resolved.
+- [x] UI.23 The heading band now runs to the card's own edges. It was inset inside the card's padding with all four corners rounded; the band is now the first child of the card with no padding above or beside it, so the card's own clip rounds its top two corners and its bottom edge is a straight line from side to side. The section body carries the padding the card used to.
+- [x] F.16 "Shhhh" centred horizontally.
+- [x] UI.24 Force Stop moved inside the Test Alarm card, and Test Alarm collapses like Permissions. Both are deliberate, occasional actions, so they now share one collapsed block. The collapsing header/divider/chevron was duplicated at that point, so it became one `CollapsibleCard`; Permissions passes its ✓ / ⚠ symbol in through a `headerExtra` slot.
+- versionCode 7 / versionName 1.6.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

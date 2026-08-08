@@ -217,6 +217,21 @@ path must keep going through there or the user's volume stays overridden.
 the old spelling on purpose — renaming them would orphan every saved
 SharedPreference and scheduled alarm. Only `app_name` changed.
 
+**17. `finish()` does not remove the takeover's task from recents.**
+`AlarmActivity` is `singleInstance`, so it is always the root of a task of its
+own. Finishing it leaves an empty task record whose **base intent is the alarm**,
+and returning to the app from the overview replays that intent — the takeover
+reopens for an alarm the user already resolved (B.7). Every close path must go
+through `closeTakeover()` (`finishAndRemoveTask()`), and the manifest entry keeps
+`excludeFromRecents` + `autoRemoveFromRecents`.
+
+To check it: `dumpsys activity recents` **still lists** the takeover's task while
+the alarm rings — `excludeFromRecents` only hides it from the overview UI, it
+does not remove the record. Read the task's `intent=` flags instead:
+`0x00800000` is `FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS`, and `autoRemoveRecents=true`
+appears on the line below. What must be true *after* the alarm is resolved is
+that no task with `baseIntent … AlarmActivity` remains at all.
+
 ---
 
 ## Design system (M3.1)

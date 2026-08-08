@@ -17,8 +17,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -109,6 +111,7 @@ fun HomeScreen() {
     ) { refreshKey++ }
 
     var showOverlayDialog by remember { mutableStateOf(false) }
+    var testAlarmExpanded by remember { mutableStateOf(false) }
     var permissionsExpanded by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
@@ -152,8 +155,14 @@ fun HomeScreen() {
 
         Spacer(Modifier.height(Spacing.xl))
 
-        // ---- Section 2: Test Alarm ----
-        SectionCard(title = "Test Alarm") {
+        // ---- Section 3: Test Alarm (UI.24 — collapsible, and it now owns
+        // Force Stop: both are things you reach for deliberately, so they are
+        // out of the way until asked for.) ----
+        CollapsibleCard(
+            title = "Test Alarm",
+            expanded = testAlarmExpanded,
+            onToggle = { testAlarmExpanded = !testAlarmExpanded }
+        ) {
             FilledTonalButton(
                 onClick = {
                     if (Settings.canDrawOverlays(context)) {
@@ -193,39 +202,30 @@ fun HomeScreen() {
                 Text("Test on lock screen (+5 sec)",
                     style = MaterialTheme.typography.labelLarge)
             }
+
+            Spacer(Modifier.height(Spacing.xl))
+
+            // ---- Force Stop (UI.13 — half width, centred) ----
+            ForceStopButton(
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+                onForceStop = {
+                    // Emergency: silence any alarm, clear notifications, then hard-reset
+                    // the app process so nothing stuck can keep sounding.
+                    AlarmService.forceStopEverything(context)
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
+            )
         }
 
         Spacer(Modifier.height(Spacing.xl))
 
-        // ---- Force Stop (UI.13 — below Test Alarm, half width, centred) ----
-        ForceStopButton(
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            onForceStop = {
-                // Emergency: silence any alarm, clear notifications, then hard-reset
-                // the app process so nothing stuck can keep sounding.
-                AlarmService.forceStopEverything(context)
-                android.os.Process.killProcess(android.os.Process.myPid())
-            }
-        )
-
-        Spacer(Modifier.height(Spacing.xl))
-
-        // ---- Section 3: Permissions (collapsible) ----
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large,
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { permissionsExpanded = !permissionsExpanded }
-                    .padding(horizontal = Spacing.lg, vertical = Spacing.lg),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+        // ---- Section 4: Permissions (collapsible) ----
+        CollapsibleCard(
+            title = "Permissions",
+            expanded = permissionsExpanded,
+            onToggle = { permissionsExpanded = !permissionsExpanded },
+            headerExtra = {
                 // UI.10 — status symbol sits to the right of the heading.
-                Text("Permissions", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.size(Spacing.sm))
                 if (allGranted) {
                     Icon(Icons.Filled.CheckCircle, contentDescription = "All granted",
@@ -236,69 +236,55 @@ fun HomeScreen() {
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(20.dp))
                 }
-                Spacer(Modifier.weight(1f))
-                Icon(
-                    if (permissionsExpanded) Icons.Filled.KeyboardArrowUp
-                    else Icons.Filled.KeyboardArrowDown,
-                    contentDescription = if (permissionsExpanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
-
-            AnimatedVisibility(visible = permissionsExpanded) {
-                Column {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Column(Modifier.padding(Spacing.lg)) {
-                        PermissionRow(
-                            name = "Notification Access",
-                            description = "Allows intercepting calendar notifications",
-                            granted = notificationAccess
-                        ) {
-                            context.startActivity(
-                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        }
-                        PermissionRow(
-                            name = "Display over other apps",
-                            description = "Required to show the alarm over the lock screen",
-                            granted = overlay
-                        ) {
-                            context.startActivity(
-                                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}"))
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                        }
-                        PermissionRow(
-                            name = "Schedule Exact Alarms",
-                            description = "Required for precise snooze timing",
-                            granted = exactAlarm
-                        ) {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                context.startActivity(
-                                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                                        Uri.parse("package:${context.packageName}"))
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                            }
-                        }
-                        PermissionRow(
-                            name = "Read Calendar",
-                            description = "Lets the app open the correct calendar event",
-                            granted = readCalendar
-                        ) {
-                            calendarPermLauncher.launch(Manifest.permission.READ_CALENDAR)
-                        }
-                        // Android 14+ — revocable, and without it the takeover
-                        // silently degrades to an ordinary heads-up notification.
-                        PermissionRow(
-                            name = "Full-screen notifications",
-                            description = "Required for the alarm to take over the screen",
-                            granted = fullScreenIntent,
-                            isLast = true
-                        ) {
-                            openFullScreenIntentSettings(context)
-                        }
-                    }
+        ) {
+            PermissionRow(
+                name = "Notification Access",
+                description = "Allows intercepting calendar notifications",
+                granted = notificationAccess
+            ) {
+                context.startActivity(
+                    Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            PermissionRow(
+                name = "Display over other apps",
+                description = "Required to show the alarm over the lock screen",
+                granted = overlay
+            ) {
+                context.startActivity(
+                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            PermissionRow(
+                name = "Schedule Exact Alarms",
+                description = "Required for precise snooze timing",
+                granted = exactAlarm
+            ) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    context.startActivity(
+                        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                            Uri.parse("package:${context.packageName}"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
+            }
+            PermissionRow(
+                name = "Read Calendar",
+                description = "Lets the app open the correct calendar event",
+                granted = readCalendar
+            ) {
+                calendarPermLauncher.launch(Manifest.permission.READ_CALENDAR)
+            }
+            // Android 14+ — revocable, and without it the takeover
+            // silently degrades to an ordinary heads-up notification.
+            PermissionRow(
+                name = "Full-screen notifications",
+                description = "Required for the alarm to take over the screen",
+                granted = fullScreenIntent,
+                isLast = true
+            ) {
+                openFullScreenIntentSettings(context)
             }
         }
 
@@ -434,6 +420,57 @@ private fun SectionCard(
             Text(title, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(Spacing.md))
             content()
+        }
+    }
+}
+
+/**
+ * UI.24 — a [SectionCard] whose body folds away behind its heading. Permissions
+ * has worked this way since UI.10; Test Alarm joined it, so the pattern is one
+ * composable rather than two copies that can drift apart.
+ *
+ * [headerExtra] runs in the heading row immediately after the title, before the
+ * spacer that pushes the chevron to the far edge — that is where Permissions
+ * puts its ✓ / ⚠ status symbol.
+ */
+@Composable
+private fun CollapsibleCard(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    headerExtra: @Composable RowScope.() -> Unit = {},
+    // ColumnScope so card contents can use Modifier.align (Force Stop).
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .padding(horizontal = Spacing.lg, vertical = Spacing.lg),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            headerExtra()
+            Spacer(Modifier.weight(1f))
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp
+                else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(Modifier.padding(Spacing.lg)) { content() }
+            }
         }
     }
 }
