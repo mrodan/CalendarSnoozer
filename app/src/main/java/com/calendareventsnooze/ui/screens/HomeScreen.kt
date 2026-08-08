@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Warning
@@ -64,6 +63,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -75,6 +77,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.service.AlarmService
+import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.TestAlarmHelper
 import kotlin.math.sqrt
@@ -155,6 +158,13 @@ fun HomeScreen() {
 
         Spacer(Modifier.height(Spacing.xl))
 
+        // UI.27 — a rule between the two alarm lists and the tools below them.
+        // It replaces the divider that used to sit under each card's heading,
+        // now that the headings have their own tonal band.
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        Spacer(Modifier.height(Spacing.xl))
+
         // ---- Section 3: Test Alarm (UI.24 — collapsible, and it now owns
         // Force Stop: both are things you reach for deliberately, so they are
         // out of the way until asked for.) ----
@@ -228,9 +238,7 @@ fun HomeScreen() {
                 // UI.10 — status symbol sits to the right of the heading.
                 Spacer(Modifier.size(Spacing.sm))
                 if (allGranted) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = "All granted",
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(20.dp))
+                    OutlinedCheckIcon()
                 } else {
                     Icon(Icons.Filled.Warning, contentDescription = "Permissions pending",
                         tint = MaterialTheme.colorScheme.error,
@@ -401,26 +409,42 @@ private fun StopWithCrossIcon() {
 }
 
 /**
- * M3.1 — one container per top-level section of the Home tab, so Snoozed
- * Alarms / Test Alarm / Permissions read as three distinct blocks instead of
- * one continuous column.
+ * UI.27 — the "all permissions granted" mark: a hollow circle with a check
+ * inside, both at the same weight, so the shape reads as an outline rather than
+ * a filled badge. Material's `CheckCircle` is a solid disc and `CheckCircle`
+ * outlined leaves the check floating well inside the ring, so it is drawn here:
+ * the long arm ends exactly **on** the circle at 45° up-right, which is what
+ * makes the two strokes read as one mark.
  */
 @Composable
-private fun SectionCard(
-    title: String,
-    content: @Composable () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    ) {
-        Column(Modifier.padding(Spacing.lg)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(Spacing.md))
-            content()
+private fun OutlinedCheckIcon() {
+    val color = MaterialTheme.colorScheme.secondary
+    Canvas(Modifier.size(20.dp)) {
+        val stroke = 2.dp.toPx()
+        val radius = (size.minDimension - stroke) / 2f
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+
+        drawCircle(
+            color = color,
+            radius = radius,
+            center = Offset(cx, cy),
+            style = Stroke(width = stroke)
+        )
+
+        // On a 45° diagonal the circle is radius/√2 away on each axis.
+        val diagonal = radius / sqrt(2f)
+        val vertex = Offset(cx - 0.09f * size.width, cy + 0.09f * size.height)
+        val path = Path().apply {
+            moveTo(vertex.x - 0.175f * size.width, vertex.y - 0.175f * size.height)
+            lineTo(vertex.x, vertex.y)
+            lineTo(cx + diagonal, cy - diagonal)
         }
+        drawPath(
+            path,
+            color = color,
+            style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
     }
 }
 

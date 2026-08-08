@@ -59,9 +59,8 @@ fun SnoozedAlarmsSection(
     alarms: List<SnoozedAlarmRecord>,
     onManage: (SnoozedAlarmRecord) -> Unit
 ) {
-    // UI.12 — a rule under the heading, and one between every pair of alarms.
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
+    // UI.12 — a rule between every pair of alarms. UI.27 dropped the one that
+    // used to sit under the heading: the heading now has its own tonal band.
     if (alarms.isEmpty()) {
         Text(
             "No snoozed alarms",
@@ -114,8 +113,6 @@ fun MissedAlarmsSection(
     alarms: List<MissedAlarmRecord>,
     onManage: (MissedAlarmRecord) -> Unit
 ) {
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
     if (alarms.isEmpty()) {
         Text(
             "No missed alarms",

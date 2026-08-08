@@ -146,13 +146,19 @@ to a sensible default instead of silently becoming 0. (A `LongArray` also does
 not round-trip through Gson at all, which is one reason the vibration pattern is
 no longer stored as one.)
 
-**6. The vibration waveform strictly alternates off/on, and plays once.**
-`SoundProfile.buildVibrationWaveform()` expands the five F.7 sliders (buzz-on,
-buzz-off, buzzes per pattern, delay between patterns, repetitions) into
-`[0, ON, off, ON, ...]`. Two consecutive *off* values would invert every
-subsequent element, so the gap after a pattern's last buzz **is** the
-between-patterns delay — never emit both. Repetitions are concatenated into the
-array, not expressed with the vibrator's `repeat` index, which loops forever.
+**6. The vibration waveform strictly alternates off/on.**
+For a **custom buzz**, `SoundProfile.buildVibrationWaveform()` expands the five
+F.7 sliders (buzz-on, buzz-off, buzzes per pattern, delay between patterns,
+repetitions) into `[0, ON, off, ON, ...]`. Two consecutive *off* values would
+invert every subsequent element, so the gap after a pattern's last buzz **is**
+the between-patterns delay — never emit both. Its repetitions are concatenated
+into the array, not expressed with the vibrator's `repeat` index.
+
+The UI.25 **presets** are the one exception: they must buzz for as long as the
+alarm lasts, so they are `[0, on, off]` played with `repeat = 0` — which does
+loop forever, deliberately. `vibrationRepeatIndex()` decides which, so callers
+stay a single `play(waveform, repeat)`. Anything that leaves an alarm must keep
+cancelling the vibrator, or a preset never stops.
 
 **7. No `LazyColumn` inside a `Column` that scrolls the same direction.**
 The Home tab scrolls, so the snoozed-alarm list renders as plain rows.
@@ -291,6 +297,11 @@ Non-obvious testing facts:
   open-specific-event path cannot be verified there — it needs the real phone.
 - `uiautomator dump` + regex on the XML is more reliable than screenshots for
   assertions; use screenshots for visual checks only (they cost a lot of context).
+- **`uiautomator dump` does not capture Compose popups.** A dropdown menu,
+  `AlertDialog` content or `ModalBottomSheet` rendered in its own window can be
+  fully open on screen and completely absent from the XML. An "it didn't open"
+  conclusion drawn from the dump alone is worthless — and tapping again to
+  "retry" just closes it. Take a screenshot for anything in a popup.
 - **Never pipe `adb exec-out screencap -p` to a file in PowerShell** — the shell
   re-encodes the stream and prepends a BOM, producing an unreadable PNG. Use
   `adb shell screencap -p /sdcard/x.png` then `adb pull`.

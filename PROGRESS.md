@@ -157,6 +157,19 @@ Verified directly on the device, not an emulator.
 - [x] UI.24 Force Stop moved inside the Test Alarm card, and Test Alarm collapses like Permissions. Both are deliberate, occasional actions, so they now share one collapsed block. The collapsing header/divider/chevron was duplicated at that point, so it became one `CollapsibleCard`; Permissions passes its ✓ / ⚠ symbol in through a `headerExtra` slot.
 - versionCode 7 / versionName 1.6.
 
+## Feedback round 15 — verified on the Pixel 10a / Android 17
+- [x] UI.25.1 The "Overrides the phone's alarm volume…" caption moved above the slider, between it and the "Alarm Volume" label — it explains the control, so it reads before it.
+- [x] UI.25.2 Sound Delay, Sound Fade In, Sound Stops After, Vibration Delay and Vibration Stops After each sit behind their own switch; the box only exists while the switch is on. The switch state is held **separately** rather than derived from "value > 0", or clearing the box to type a new number would make it vanish mid-edit. Off persists as 0, which every consumer already reads as "not set", and the typed value stays in the box so flicking the switch back restores it.
+- [x] UI.25.3 A **Buzz style** menu — Little / Medium / Long / XXL / Custom. The four named ones are a single buzz length alternating on/off *for as long as the alarm lasts*: S/S, M/M, XL/L, XXL/XL. Only "Custom Buzz" shows "Customize your Buzz", which opens the five pattern sliders in a dialog ("Number of Buzzes Pattern" → "Buzzes per Pattern"). Test Vibration moved above the Vibration Delay switch and now tests whichever style is selected — one pattern for custom, three cycles for a preset, since a preset would otherwise never stop.
+- A preset is the one case where the vibrator's own `repeat` index is correct: the waveform is `[0, on, off]` looped from the start, and every stop path (Vibration Stops After, auto-dismiss, auto-snooze, any user action, Force Stop) already cancels the vibrator. A custom buzz still unrolls its repetitions into the array — see trap 6.
+- **Migration:** a profile saved before UI.25 becomes `CUSTOM`, the only value that preserves what its five sliders were doing. Fresh installs start at `MEDIUM`. Confirmed on the phone: every existing profile came back as Custom Buzz with its slider values intact.
+- [x] UI.27.1 A rule between the two alarm lists and the tools below them.
+- [x] UI.27.2 Snoozed Alarms and Missed Alarms take the same tonal heading band as the Sound card, and the divider that used to sit under each heading is gone. The band is now one `ui/components/SectionCard.kt` shared by Home and Sound & Vibration rather than two copies.
+- [x] UI.27.3 The "all granted" mark is drawn rather than a Material icon: a hollow circle and a check at the same stroke weight, the check's long arm ending exactly **on** the circle at 45° up-right. `CheckCircle` is a solid disc and its outlined variant leaves the check floating inside the ring.
+- [x] UI.27.4 Primary tab labels +20%, Sound & Vibration sub-tab labels +15%.
+- [x] F.17 The missed-alarm notification had no content intent at all, so tapping it did nothing. It now opens MainActivity on the Home tab. Verified end to end on the phone: with the app backgrounded on the Snooze Buttons tab, tapping the notification brought it forward on Home with the missed alarm listed. The tab switch is driven by a counter rather than a flag, so a second tap works too.
+- versionCode 8 / versionName 1.7.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution
