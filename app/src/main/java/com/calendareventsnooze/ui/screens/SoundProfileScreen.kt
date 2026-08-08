@@ -11,11 +11,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,10 +28,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Vibration
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +48,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +68,8 @@ import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SoundProfile
+import com.calendareventsnooze.model.VibrationPreset
+import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.playOnce
 import com.calendareventsnooze.util.vibratorOf
@@ -118,7 +122,12 @@ fun SoundProfileScreen(selectedSubTab: Int, onSubTabChange: (Int) -> Unit) {
                     text = {
                         Text(
                             title,
-                            style = MaterialTheme.typography.titleSmall,
+                            // UI.27 — 15% larger than the M3 titleSmall these
+                            // used to be (the primary tabs went up 20%).
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontSize =
+                                    MaterialTheme.typography.titleSmall.fontSize * 1.15f
+                            ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -167,6 +176,24 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         mutableStateOf(initial.vibrationStopsAfterSeconds.toString())
     }
     var vibrationEnabled by remember(mode) { mutableStateOf(initial.vibrationEnabled) }
+    var vibrationPreset by remember(mode) { mutableStateOf(initial.vibrationPreset) }
+    var showBuzzDialog by remember(mode) { mutableStateOf(false) }
+
+    // UI.25 — each of the five timings is now behind its own switch. The switch
+    // state is held separately rather than derived from "value > 0", so clearing
+    // the box while typing cannot make it vanish under the user's finger. Off
+    // persists as 0, which is what every consumer already reads as "not set".
+    var soundDelayOn by remember(mode) { mutableStateOf(initial.soundDelaySeconds > 0) }
+    var fadeInOn by remember(mode) { mutableStateOf(initial.fadeInSeconds > 0) }
+    var soundStopsOn by remember(mode) {
+        mutableStateOf(initial.soundStopsAfterSeconds > 0)
+    }
+    var vibrationDelayOn by remember(mode) {
+        mutableStateOf(initial.vibrationDelaySeconds > 0)
+    }
+    var vibrationStopsOn by remember(mode) {
+        mutableStateOf(initial.vibrationStopsAfterSeconds > 0)
+    }
     // F.7 — the five vibration sliders. Each holds the *index* of its stop, so a
     // stored value that isn't exactly on a stop snaps to the nearest one.
     var buzzOnIdx by remember(mode) {
@@ -221,7 +248,9 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     LaunchedEffect(
         soundEnabled, soundUri, alarmVolume, soundDelaySeconds, fadeInSeconds,
         stopsAfterSeconds,
-        vibrationEnabled, vibrationDelaySeconds, vibrationStopsAfterSeconds,
+        vibrationEnabled, vibrationPreset,
+        vibrationDelaySeconds, vibrationStopsAfterSeconds,
+        soundDelayOn, fadeInOn, soundStopsOn, vibrationDelayOn, vibrationStopsOn,
         buzzOnIdx, buzzOffIdx, buzzesIdx,
         patternDelayIdx, repetitionsIdx,
         soundStartsFirst, secondDelay, autoDismissSeconds, autoSnoozeMinutes, maxRetries,
@@ -234,15 +263,16 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 soundEnabled = soundEnabled,
                 soundUri = soundUri,
                 alarmVolumePercent = alarmVolume,
-                soundDelaySeconds = soundDelaySeconds.toIntOrNull()?.coerceAtLeast(0) ?: 0,
-                fadeInSeconds = fadeInSeconds.toIntOrNull()?.coerceAtLeast(0) ?: 0,
-                soundStopsAfterSeconds = stopsAfterSeconds.toIntOrNull()
-                    ?.coerceAtLeast(0) ?: 0,
+                // UI.25 — a switch that is off writes 0 but leaves whatever the
+                // user typed in the box, so turning it back on restores it.
+                soundDelaySeconds = seconds(soundDelayOn, soundDelaySeconds),
+                fadeInSeconds = seconds(fadeInOn, fadeInSeconds),
+                soundStopsAfterSeconds = seconds(soundStopsOn, stopsAfterSeconds),
                 vibrationEnabled = vibrationEnabled,
-                vibrationDelaySeconds = vibrationDelaySeconds.toIntOrNull()
-                    ?.coerceAtLeast(0) ?: 0,
-                vibrationStopsAfterSeconds = vibrationStopsAfterSeconds.toIntOrNull()
-                    ?.coerceAtLeast(0) ?: 0,
+                vibrationPreset = vibrationPreset,
+                vibrationDelaySeconds = seconds(vibrationDelayOn, vibrationDelaySeconds),
+                vibrationStopsAfterSeconds =
+                    seconds(vibrationStopsOn, vibrationStopsAfterSeconds),
                 buzzOnMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOnIdx],
                 buzzOffMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOffIdx],
                 buzzesPerPattern = buzzesIdx + 1,
@@ -274,7 +304,7 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         Spacer(Modifier.height(Spacing.md))
 
         // ---- Sound ----
-        SettingsSection("Sound") {
+        SectionCard("Sound") {
             SwitchRow("Enable sound alarm", soundEnabled) { soundEnabled = it }
             // UI.16 — the rest of the section only matters once sound is on.
             AnimatedVisibility(visible = soundEnabled) {
@@ -320,6 +350,13 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
             // F.10 — playback shaping.
             Spacer(Modifier.height(Spacing.lg))
             Text("Alarm Volume", style = MaterialTheme.typography.titleSmall)
+            // UI.25 — the caption explains the slider, so it reads before it
+            // rather than after.
+            Text(
+                "Overrides the phone's alarm volume while this alarm rings.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -341,29 +378,33 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                     color = MaterialTheme.colorScheme.primary
                 )
             }
-            Text(
-                "Overrides the phone's alarm volume while this alarm rings.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
 
+            // UI.25 — each timing is behind its own switch; the box only
+            // appears once it is asked for.
             Spacer(Modifier.height(Spacing.md))
-            NumberField(
+            ToggleNumberField(
+                switchLabel = "Sound Delay",
+                fieldLabel = "Sound Delay (seconds)",
+                enabled = soundDelayOn,
+                onEnabledChange = { soundDelayOn = it },
                 value = soundDelaySeconds,
-                onValueChange = { soundDelaySeconds = it },
-                label = "Sound Delay (seconds) — 0 for none"
+                onValueChange = { soundDelaySeconds = it }
             )
-            Spacer(Modifier.height(Spacing.md))
-            NumberField(
+            ToggleNumberField(
+                switchLabel = "Sound Fade In",
+                fieldLabel = "Sound Fade In (seconds)",
+                enabled = fadeInOn,
+                onEnabledChange = { fadeInOn = it },
                 value = fadeInSeconds,
-                onValueChange = { fadeInSeconds = it },
-                label = "Sound Fade In (seconds) — 0 for none"
+                onValueChange = { fadeInSeconds = it }
             )
-            Spacer(Modifier.height(Spacing.md))
-            NumberField(
+            ToggleNumberField(
+                switchLabel = "Sound Stops After",
+                fieldLabel = "Sound Stops After (seconds)",
+                enabled = soundStopsOn,
+                onEnabledChange = { soundStopsOn = it },
                 value = stopsAfterSeconds,
-                onValueChange = { stopsAfterSeconds = it },
-                label = "Sound Stops After (seconds) — 0 to keep sounding"
+                onValueChange = { stopsAfterSeconds = it }
             )
             }
             }
@@ -372,7 +413,7 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         Spacer(Modifier.height(Spacing.lg))
 
         // ---- Vibration ----
-        SettingsSection("Vibration") {
+        SectionCard("Vibration") {
             SwitchRow("Enable vibration", vibrationEnabled) { vibrationEnabled = it }
             // UI.16 — the five sliders and the test button are irrelevant with
             // vibration off.
@@ -380,50 +421,43 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
             Column {
             Spacer(Modifier.height(Spacing.lg))
 
-            // F.7 — five sliders replace the raw comma-separated pattern field.
-            OptionSlider("Buzz-On Length", SoundProfile.SIZE_LABELS, buzzOnIdx) {
-                buzzOnIdx = it
+            // UI.25 — the five sliders are no longer the primary control. Four
+            // named characters cover what people actually want, and the sliders
+            // live behind "Custom Buzz".
+            VibrationPresetMenu(vibrationPreset) { vibrationPreset = it }
+
+            AnimatedVisibility(visible = vibrationPreset == VibrationPreset.CUSTOM) {
+                Column {
+                    Spacer(Modifier.height(Spacing.md))
+                    OutlinedButton(
+                        onClick = { showBuzzDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        Icon(Icons.Outlined.Tune, contentDescription = null,
+                            modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(Spacing.sm))
+                        Text("Customize your Buzz",
+                            style = MaterialTheme.typography.labelLarge)
+                    }
+                }
             }
+
+            // F.9 — plays the current buzz once so it can be felt without
+            // firing a whole alarm. UI.25 moves it directly above the timing
+            // switches, and it now tests whichever character is selected.
             Spacer(Modifier.height(Spacing.lg))
-            OptionSlider("Buzz-Off Length", SoundProfile.SIZE_LABELS, buzzOffIdx) {
-                buzzOffIdx = it
-            }
-            Spacer(Modifier.height(Spacing.lg))
-            OptionSlider("Number of Buzzes Pattern", COUNT_LABELS, buzzesIdx) {
-                buzzesIdx = it
-            }
-            // F.9 — plays exactly one pattern (repetitions ignored) so the buzz
-            // settings above can be felt without firing a whole alarm. F.11 puts
-            // it directly under the sliders that shape a single pattern, above
-            // the two that only govern how patterns repeat.
-            Spacer(Modifier.height(Spacing.md))
             FilledTonalButton(
                 onClick = {
-                    val onePattern = SoundProfile(
-                        ringerMode = mode,
-                        soundEnabled = false,
-                        soundUri = null,
-                        alarmVolumePercent = AppPrefs.DEFAULT_ALARM_VOLUME_PERCENT,
-                        soundDelaySeconds = 0,
-                        fadeInSeconds = 0,
-                        soundStopsAfterSeconds = 0,
-                        vibrationEnabled = true,
-                        vibrationDelaySeconds = 0,
-                        vibrationStopsAfterSeconds = 0,
-                        buzzOnMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOnIdx],
-                        buzzOffMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOffIdx],
-                        buzzesPerPattern = buzzesIdx + 1,
-                        delayBetweenPatternsMs =
-                            SoundProfile.PATTERN_DELAY_OPTIONS[patternDelayIdx],
-                        vibrationRepetitions = 1,
-                        soundStartsFirst = true,
-                        secondStartDelaySeconds = 0,
-                        autoDismissSeconds = 0,
-                        autoDismissAction = AutoDismissAction.DISMISS,
-                        autoDismissSnoozeMinutes = 0,
-                        autoDismissMaxRetries = 0
+                    vibratorOf(context).playOnce(
+                        testWaveform(
+                            preset = vibrationPreset,
+                            buzzOnIdx = buzzOnIdx,
+                            buzzOffIdx = buzzOffIdx,
+                            buzzes = buzzesIdx + 1,
+                            patternDelayIdx = patternDelayIdx
+                        )
                     )
-                    vibratorOf(context).playOnce(onePattern.buildVibrationWaveform())
                 },
                 modifier = Modifier.align(Alignment.CenterHorizontally), // UI.14
                 shape = MaterialTheme.shapes.large
@@ -434,37 +468,44 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 Text("Test Vibration", style = MaterialTheme.typography.labelLarge)
             }
 
+            // UI.22 / UI.25 — the timings that mirror the sound section's.
             Spacer(Modifier.height(Spacing.lg))
-            OptionSlider("Delay Between Patterns", SoundProfile.SIZE_LABELS, patternDelayIdx) {
-                patternDelayIdx = it
-            }
-            Spacer(Modifier.height(Spacing.lg))
-            OptionSlider("Number of Pattern Repetitions", COUNT_LABELS, repetitionsIdx) {
-                repetitionsIdx = it
-            }
-
-            // UI.22 — the timings that mirror the sound section's.
-            Spacer(Modifier.height(Spacing.lg))
-            NumberField(
+            ToggleNumberField(
+                switchLabel = "Vibration Delay",
+                fieldLabel = "Vibration Delay (seconds)",
+                enabled = vibrationDelayOn,
+                onEnabledChange = { vibrationDelayOn = it },
                 value = vibrationDelaySeconds,
-                onValueChange = { vibrationDelaySeconds = it },
-                label = "Vibration Delay (seconds) — 0 for none"
+                onValueChange = { vibrationDelaySeconds = it }
             )
-            Spacer(Modifier.height(Spacing.md))
-            NumberField(
+            ToggleNumberField(
+                switchLabel = "Vibration Stops After",
+                fieldLabel = "Vibration Stops After (seconds)",
+                enabled = vibrationStopsOn,
+                onEnabledChange = { vibrationStopsOn = it },
                 value = vibrationStopsAfterSeconds,
-                onValueChange = { vibrationStopsAfterSeconds = it },
-                label = "Vibration Stops After (seconds) — 0 to keep vibrating"
+                onValueChange = { vibrationStopsAfterSeconds = it }
             )
             }
             }
+        }
+
+        if (showBuzzDialog) {
+            CustomBuzzDialog(
+                buzzOnIdx = buzzOnIdx, onBuzzOn = { buzzOnIdx = it },
+                buzzOffIdx = buzzOffIdx, onBuzzOff = { buzzOffIdx = it },
+                buzzesIdx = buzzesIdx, onBuzzes = { buzzesIdx = it },
+                patternDelayIdx = patternDelayIdx, onPatternDelay = { patternDelayIdx = it },
+                repetitionsIdx = repetitionsIdx, onRepetitions = { repetitionsIdx = it },
+                onDismiss = { showBuzzDialog = false }
+            )
         }
 
         Spacer(Modifier.height(Spacing.lg))
 
         // ---- Sequencing ----
         val sequencingApplies = soundEnabled && vibrationEnabled
-        SettingsSection(
+        SectionCard(
             "Sequencing",
             hint = if (sequencingApplies) null else "opens when Sound + Vibration are ON"
         ) {
@@ -497,7 +538,7 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
         Spacer(Modifier.height(Spacing.lg))
 
         // ---- Auto-snooze / auto-dismiss ----
-        SettingsSection("Auto-Snooze / Auto-Dismiss") {
+        SectionCard("Auto-Snooze / Auto-Dismiss") {
             // UI.20 — a two-way choice rather than an on/off switch, matching
             // the Sequencing control. Each side owns its own fields below.
             val autoSnooze = autoDismissAction == AutoDismissAction.SNOOZE
@@ -574,64 +615,166 @@ private fun nearestIndex(options: List<Int>, value: Int): Int {
     return best
 }
 
+/** UI.25 — a switch that is off stores 0, whatever is still typed in its box. */
+private fun seconds(enabled: Boolean, text: String): Int =
+    if (enabled) text.toIntOrNull()?.coerceAtLeast(0) ?: 0 else 0
+
 /**
- * M3.1 — one card per group of settings, replacing the old emoji headings and
- * full-width dividers.
+ * UI.25 — what "Test Vibration" plays.
+ *
+ * A custom buzz plays exactly one pattern, repetitions ignored, as it always
+ * has. A preset buzzes forever during a real alarm, so the test plays a few
+ * cycles of it — long enough to feel the character, short enough to end on its
+ * own.
  */
+private const val PRESET_TEST_CYCLES = 3
+
+private fun testWaveform(
+    preset: VibrationPreset,
+    buzzOnIdx: Int,
+    buzzOffIdx: Int,
+    buzzes: Int,
+    patternDelayIdx: Int
+): LongArray {
+    val profile = { p: VibrationPreset, reps: Int ->
+        SoundProfile(
+            ringerMode = RingerMode.SOUND_ON,
+            soundEnabled = false,
+            soundUri = null,
+            alarmVolumePercent = AppPrefs.DEFAULT_ALARM_VOLUME_PERCENT,
+            soundDelaySeconds = 0,
+            fadeInSeconds = 0,
+            soundStopsAfterSeconds = 0,
+            vibrationEnabled = true,
+            vibrationPreset = p,
+            vibrationDelaySeconds = 0,
+            vibrationStopsAfterSeconds = 0,
+            buzzOnMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOnIdx],
+            buzzOffMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOffIdx],
+            buzzesPerPattern = buzzes,
+            delayBetweenPatternsMs = SoundProfile.PATTERN_DELAY_OPTIONS[patternDelayIdx],
+            vibrationRepetitions = reps,
+            soundStartsFirst = true,
+            secondStartDelaySeconds = 0,
+            autoDismissSeconds = 0,
+            autoDismissAction = AutoDismissAction.DISMISS,
+            autoDismissSnoozeMinutes = 0,
+            autoDismissMaxRetries = 0
+        )
+    }
+    if (preset == VibrationPreset.CUSTOM) {
+        return profile(VibrationPreset.CUSTOM, 1).buildVibrationWaveform()
+    }
+    // The preset waveform is [0, on, off]; repeat its on/off pair by hand
+    // rather than looping the vibrator, so the test always stops itself.
+    val single = profile(preset, 1).buildVibrationWaveform()
+    val out = ArrayList<Long>(1 + PRESET_TEST_CYCLES * 2)
+    out.add(0L)
+    repeat(PRESET_TEST_CYCLES) { i ->
+        out.add(single[1])
+        if (i < PRESET_TEST_CYCLES - 1) out.add(single[2])
+    }
+    return out.toLongArray()
+}
+
+/**
+ * UI.25 — the vibration character menu. Four named presets buzz until something
+ * stops the alarm; "Custom Buzz" is the only one that uses the pattern sliders.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsSection(
-    title: String,
-    // UI.18 — optional note beside the heading, used by Sequencing to explain
-    // itself while collapsed.
-    hint: String? = null,
-    // ColumnScope so section contents can use Modifier.align (UI.14).
-    content: @Composable ColumnScope.() -> Unit
+private fun VibrationPresetMenu(
+    selected: VibrationPreset,
+    onSelect: (VibrationPreset) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column {
-            // UI.23 — the heading sits on its own tonal band. M3 says to lift a
-            // header off its card with the next surface-container step rather
-            // than a divider or an arbitrary tint, so the card stays
-            // surfaceContainerLow and this goes one level up.
-            //
-            // The band runs to the card's own edges rather than sitting inset
-            // inside it: the card clips its content, so the two top corners
-            // follow the card's radius while the bottom edge stays a straight
-            // line from side to side. It therefore carries the card's horizontal
-            // padding itself, and the section body below supplies its own.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .padding(horizontal = Spacing.lg, vertical = Spacing.md),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    title,
-                    // UI.18 — 25% larger than the M3 titleMedium these used to be.
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = MaterialTheme.typography.titleMedium.fontSize * 1.25f
-                    ),
-                    color = MaterialTheme.colorScheme.primary
+        OutlinedTextField(
+            value = selected.label,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Buzz style", style = MaterialTheme.typography.bodySmall) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            shape = MaterialTheme.shapes.small,
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            VibrationPreset.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(option.label, style = MaterialTheme.typography.bodyLarge)
+                    },
+                    onClick = { onSelect(option); expanded = false }
                 )
-                if (hint != null) {
-                    Spacer(Modifier.size(Spacing.sm))
-                    Text(
-                        hint,
-                        // Matches the delay field's label beneath it.
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
-            Column(Modifier.padding(Spacing.lg)) { content() }
         }
     }
+}
+
+/**
+ * UI.25 — the five pattern sliders, moved out of the section and behind
+ * "Customize your Buzz". Every change still auto-saves as it happens, so the
+ * dialog needs no confirm button — only a way out.
+ */
+@Composable
+private fun CustomBuzzDialog(
+    buzzOnIdx: Int, onBuzzOn: (Int) -> Unit,
+    buzzOffIdx: Int, onBuzzOff: (Int) -> Unit,
+    buzzesIdx: Int, onBuzzes: (Int) -> Unit,
+    patternDelayIdx: Int, onPatternDelay: (Int) -> Unit,
+    repetitionsIdx: Int, onRepetitions: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Customize your Buzz", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OptionSlider("Buzz-On Length", SoundProfile.SIZE_LABELS, buzzOnIdx, onBuzzOn)
+                Spacer(Modifier.height(Spacing.lg))
+                OptionSlider("Buzz-Off Length", SoundProfile.SIZE_LABELS, buzzOffIdx, onBuzzOff)
+                Spacer(Modifier.height(Spacing.lg))
+                OptionSlider("Buzzes per Pattern", COUNT_LABELS, buzzesIdx, onBuzzes)
+                Spacer(Modifier.height(Spacing.lg))
+                OptionSlider("Delay Between Patterns", SoundProfile.SIZE_LABELS,
+                    patternDelayIdx, onPatternDelay)
+                Spacer(Modifier.height(Spacing.lg))
+                OptionSlider("Number of Pattern Repetitions", COUNT_LABELS,
+                    repetitionsIdx, onRepetitions)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
+    )
+}
+
+/**
+ * UI.25 — a switch and the number field it governs. Off hides the field
+ * entirely; the value it wrote is 0, which every consumer already reads as
+ * "not set".
+ */
+@Composable
+private fun ToggleNumberField(
+    switchLabel: String,
+    fieldLabel: String,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    SwitchRow(switchLabel, enabled, onEnabledChange)
+    AnimatedVisibility(visible = enabled) {
+        Column {
+            Spacer(Modifier.height(Spacing.sm))
+            NumberField(value = value, onValueChange = onValueChange, label = fieldLabel)
+        }
+    }
+    Spacer(Modifier.height(Spacing.md))
 }
 
 /**
