@@ -31,6 +31,7 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -93,6 +94,7 @@ fun AlarmScreen(
     autoDismissSeconds: Int,
     onSnooze: (scheduledTimeMs: Long, openCalendar: Boolean) -> Unit,
     onDismiss: (openCalendar: Boolean) -> Unit,
+    onQuiet: () -> Unit,
     onAutoDismissTimeout: () -> Unit
 ) {
     var showSpecifyTime by remember { mutableStateOf(false) }
@@ -275,6 +277,29 @@ fun AlarmScreen(
                 tint = LightOnSecondaryContainer,
                 modifier = Modifier.size(28.dp)
             )
+        }
+
+        // F.16 — silences sound and vibration without resolving anything. The
+        // alarm carries on: the takeover stays up, the notification stays put
+        // and the auto-snooze countdown keeps running. Deliberately quiet
+        // looking — it shares the screen's own background so it cannot be
+        // mistaken for one of the actions above.
+        Spacer(Modifier.height(Spacing.lg))
+        Row(Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = onQuiet,
+                modifier = Modifier
+                    .fillMaxWidth(1f / 3f)
+                    .height(56.dp),
+                shape = MaterialTheme.shapes.large,
+                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmOutline),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = AlarmBackground,
+                    contentColor = AlarmOnSurface
+                )
+            ) {
+                Text("Shhhh", style = MaterialTheme.typography.titleMedium)
+            }
         }
         Spacer(Modifier.height(Spacing.xl))
     }

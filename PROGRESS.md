@@ -140,6 +140,16 @@ Verified directly on the device, not an emulator.
 - [x] UI.19 "CANCEL SNOOZE" in the Manage sheet.
 - versionCode 5 / versionName 1.4.
 
+## Feedback round 13
+- [x] UI.20 Auto-Snooze / Auto-Dismiss is a segmented switch rather than an on/off toggle, matching Sequencing. Auto-Snooze shows the three existing fields; Auto-Dismiss shows one, "Trigger Auto-Dismiss after (seconds)". Both branches write the same `autoDismissSeconds`, so the value carries across when the user flips between them. Presets are now 60 / 10 / 2 in **all three** modes (SILENT was 30 / 5 / 2).
+- [x] UI.21 "Sound Delay (seconds)" added above the fade field; the other two labels now read "Sound Fade In" and "Sound Stops After" rather than "Alarm …".
+- [x] UI.22 "Vibration Delay" and "Vibration Stops After" close the Vibration section, mirroring the sound timings.
+- [x] UI.23 Section headings sit on their own tonal band — `surfaceContainerHigh` against the card's `surfaceContainerLow`, which is the M3 way to lift a header off its container rather than a divider or an arbitrary tint.
+- [x] F.15 A **Missed Alarms** section under Snoozed Alarms, same shape, listing the *event's* day and time. Alarms are filed there on auto-dismiss, on running out of auto-snooze retries, and on Force Stop (every alarm still on the stack). New `MissedAlarmRecord` — deliberately a separate type from `SnoozedAlarmRecord`, because a missed alarm has no future firing time and carrying a `scheduledTimeMs` would invite code to treat it as still armed. `saveMissedAlarm` clears any snooze record, so an alarm appears in exactly one list. Manage reuses the same sheet via an `isMissed` flag: re-scheduling promotes it back to Snoozed, and the red button becomes "REMOVE FROM LIST".
+- [x] F.16 "Shhhh" on the takeover — a third-width outlined button in the screen's own background colour that silences sound and vibration without resolving anything. It deliberately does **not** clear the handler queue, or the auto-snooze countdown would die with the sound; a `silenced` flag makes any pending delayed start a no-op instead. Reset whenever a new alarm is presented.
+- **Sequencing and the new per-output delays stack.** Sequencing sets which output leads and how long the other waits; UI.21/UI.22 add a further per-output offset. Both default to 0, so untouched profiles behave exactly as before. Worth watching — two controls now influence the same timing.
+- versionCode 6 / versionName 1.5.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

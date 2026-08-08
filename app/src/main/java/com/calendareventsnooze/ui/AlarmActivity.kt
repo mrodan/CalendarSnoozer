@@ -102,6 +102,9 @@ class AlarmActivity : ComponentActivity() {
                             performSnooze(scheduledTimeMs, event, openCalendar)
                         },
                         onDismiss = { openCalendar -> performDismiss(event, openCalendar) },
+                        // F.16 — silences output only; the alarm is untouched,
+                        // so no userActionTaken / resolveSent here.
+                        onQuiet = { AlarmService.silenceAlarm(applicationContext) },
                         // The AlarmService owns auto-dismiss; it resolves the alarm and
                         // either closes this screen or shows the next one.
                         onAutoDismissTimeout = { }
