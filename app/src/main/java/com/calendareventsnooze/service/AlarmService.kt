@@ -25,7 +25,7 @@ import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.util.getAlarmEvent
-import com.calendareventsnooze.util.playOnce
+import com.calendareventsnooze.util.play
 import com.calendareventsnooze.util.putAlarmEvent
 import com.calendareventsnooze.util.vibratorOf
 
@@ -477,10 +477,11 @@ class AlarmService : Service() {
 
     private fun startVibration(profile: SoundProfile) {
         vibrator = vibratorOf(this)
-        // F.7 — the buzz/pattern sliders are expanded into one finite waveform,
-        // repetitions included, so the vibrator's repeat index stays at
-        // NO_REPEAT (it would otherwise loop forever).
-        vibrator?.playOnce(profile.buildVibrationWaveform())
+        // F.7 — a custom buzz expands its buzz/pattern sliders into one finite
+        // waveform, repetitions included, so its repeat index stays at NO_REPEAT.
+        // UI.25 — a preset instead loops from the start until something stops
+        // it; the profile decides which, so this stays a single call.
+        vibrator?.play(profile.buildVibrationWaveform(), profile.vibrationRepeatIndex())
         // UI.22 — optionally cut the buzzing after N seconds. Like the sound
         // equivalent this leaves the alarm itself running.
         if (profile.vibrationStopsAfterSeconds > 0) {

@@ -8,6 +8,7 @@ import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
+import com.calendareventsnooze.model.VibrationPreset
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -29,6 +30,17 @@ object AppPrefs {
     const val DEFAULT_BUZZES_PER_PATTERN = 5
     const val DEFAULT_PATTERN_DELAY_MS = 2000
     const val DEFAULT_VIBRATION_REPETITIONS = 5
+
+    /**
+     * UI.25 — the buzz style a **fresh install** starts with. Medium is the
+     * same M/M buzz length the sliders already defaulted to; what changes is
+     * that it now keeps buzzing until the alarm resolves instead of stopping
+     * after five patterns.
+     *
+     * Profiles saved before UI.25 migrate to CUSTOM instead (see [toProfile]),
+     * so an existing phone keeps behaving exactly as it did.
+     */
+    val DEFAULT_VIBRATION_PRESET = VibrationPreset.MEDIUM
 
     // F.10 — sound shaping defaults: full volume, no fade, no cut-off.
     const val DEFAULT_ALARM_VOLUME_PERCENT = 100
@@ -91,6 +103,7 @@ object AppPrefs {
         val fadeInSeconds: Int?,
         val soundStopsAfterSeconds: Int?,
         val vibrationEnabled: Boolean,
+        val vibrationPreset: VibrationPreset?,
         val vibrationDelaySeconds: Int?,
         val vibrationStopsAfterSeconds: Int?,
         val buzzOnMs: Int?,
@@ -109,7 +122,8 @@ object AppPrefs {
     private fun SoundProfile.toJson() = SoundProfileJson(
         ringerMode, soundEnabled, soundUri,
         alarmVolumePercent, soundDelaySeconds, fadeInSeconds, soundStopsAfterSeconds,
-        vibrationEnabled, vibrationDelaySeconds, vibrationStopsAfterSeconds,
+        vibrationEnabled, vibrationPreset,
+        vibrationDelaySeconds, vibrationStopsAfterSeconds,
         buzzOnMs, buzzOffMs, buzzesPerPattern, delayBetweenPatternsMs,
         vibrationRepetitions, soundStartsFirst,
         secondStartDelaySeconds, autoDismissSeconds, autoDismissAction,
@@ -127,6 +141,9 @@ object AppPrefs {
         soundStopsAfterSeconds = (soundStopsAfterSeconds
             ?: DEFAULT_SOUND_STOPS_AFTER_SECONDS).coerceAtLeast(0),
         vibrationEnabled = vibrationEnabled,
+        // UI.25 — a profile written before the presets existed was shaped by
+        // the five sliders, so CUSTOM is the only migration that preserves it.
+        vibrationPreset = vibrationPreset ?: VibrationPreset.CUSTOM,
         vibrationDelaySeconds = (vibrationDelaySeconds ?: 0).coerceAtLeast(0),
         vibrationStopsAfterSeconds = (vibrationStopsAfterSeconds ?: 0).coerceAtLeast(0),
         buzzOnMs = (buzzOnMs ?: DEFAULT_BUZZ_ON_MS).coerceAtLeast(1),
@@ -155,6 +172,7 @@ object AppPrefs {
             fadeInSeconds = DEFAULT_FADE_IN_SECONDS,
             soundStopsAfterSeconds = DEFAULT_SOUND_STOPS_AFTER_SECONDS,
             vibrationEnabled = true,
+            vibrationPreset = DEFAULT_VIBRATION_PRESET,
             vibrationDelaySeconds = 0,
             vibrationStopsAfterSeconds = 0,
             buzzOnMs = DEFAULT_BUZZ_ON_MS,
@@ -178,6 +196,7 @@ object AppPrefs {
             fadeInSeconds = DEFAULT_FADE_IN_SECONDS,
             soundStopsAfterSeconds = DEFAULT_SOUND_STOPS_AFTER_SECONDS,
             vibrationEnabled = true,
+            vibrationPreset = DEFAULT_VIBRATION_PRESET,
             vibrationDelaySeconds = 0,
             vibrationStopsAfterSeconds = 0,
             buzzOnMs = DEFAULT_BUZZ_ON_MS,
@@ -201,6 +220,7 @@ object AppPrefs {
             fadeInSeconds = DEFAULT_FADE_IN_SECONDS,
             soundStopsAfterSeconds = DEFAULT_SOUND_STOPS_AFTER_SECONDS,
             vibrationEnabled = false,
+            vibrationPreset = DEFAULT_VIBRATION_PRESET,
             vibrationDelaySeconds = 0,
             vibrationStopsAfterSeconds = 0,
             buzzOnMs = DEFAULT_BUZZ_ON_MS,

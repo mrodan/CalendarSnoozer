@@ -3,6 +3,40 @@ package com.calendareventsnooze.model
 enum class RingerMode { SOUND_ON, VIBRATE, SILENT }
 enum class AutoDismissAction { DISMISS, SNOOZE }
 
+/**
+ * UI.25 — the vibration character, chosen from a menu instead of five sliders.
+ *
+ * The four named presets are a single buzz length repeated for as long as the
+ * alarm lasts; only [CUSTOM] uses the pattern/repetition machinery behind
+ * "Customize your Buzz".
+ */
+enum class VibrationPreset(val label: String) {
+    LITTLE("Little Buzzes"),
+    MEDIUM("Medium Buzzes"),
+    LONG("Long Buzzes"),
+    XXL("XXL Buzzes"),
+    CUSTOM("Custom Buzz");
+
+    /** Buzz-on / buzz-off lengths in ms, taken from the same S…XXL stops. */
+    val buzzOnMs: Int
+        get() = when (this) {
+            LITTLE -> SoundProfile.BUZZ_LENGTH_OPTIONS[0]  // S
+            MEDIUM -> SoundProfile.BUZZ_LENGTH_OPTIONS[1]  // M
+            LONG   -> SoundProfile.BUZZ_LENGTH_OPTIONS[3]  // XL
+            XXL    -> SoundProfile.BUZZ_LENGTH_OPTIONS[4]  // XXL
+            CUSTOM -> SoundProfile.BUZZ_LENGTH_OPTIONS[1]
+        }
+
+    val buzzOffMs: Int
+        get() = when (this) {
+            LITTLE -> SoundProfile.BUZZ_LENGTH_OPTIONS[0]  // S
+            MEDIUM -> SoundProfile.BUZZ_LENGTH_OPTIONS[1]  // M
+            LONG   -> SoundProfile.BUZZ_LENGTH_OPTIONS[2]  // L
+            XXL    -> SoundProfile.BUZZ_LENGTH_OPTIONS[3]  // XL
+            CUSTOM -> SoundProfile.BUZZ_LENGTH_OPTIONS[1]
+        }
+}
+
 data class SoundProfile(
     val ringerMode: RingerMode,
     val soundEnabled: Boolean,
@@ -13,6 +47,9 @@ data class SoundProfile(
     val fadeInSeconds: Int,           // 0 = start at full volume
     val soundStopsAfterSeconds: Int,  // 0 = keep sounding until the alarm resolves
     val vibrationEnabled: Boolean,
+    // UI.25 — which of the five vibration characters is selected. Everything
+    // below (buzzOnMs … vibrationRepetitions) only applies when this is CUSTOM.
+    val vibrationPreset: VibrationPreset,
     // UI.22 — the vibration equivalents of the two sound timings above.
     val vibrationDelaySeconds: Int,      // 0 = start with the alarm
     val vibrationStopsAfterSeconds: Int, // 0 = keep buzzing until the alarm resolves
@@ -43,6 +80,17 @@ data class SoundProfile(
      * `repeat` index, which loops forever (see trap 6 in CLAUDE.md).
      */
     fun buildVibrationWaveform(): LongArray {
+        // UI.25 — a preset is one buzz length alternating on/off, looped by
+        // [vibrationRepeatIndex] rather than unrolled, because it has to last
+        // as long as the alarm does.
+        if (vibrationPreset != VibrationPreset.CUSTOM) {
+            return longArrayOf(
+                0L,
+                vibrationPreset.buzzOnMs.toLong(),
+                vibrationPreset.buzzOffMs.toLong()
+            )
+        }
+
         val buzzes = buzzesPerPattern.coerceIn(1, MAX_COUNT)
         val reps = vibrationRepetitions.coerceIn(1, MAX_COUNT)
         val on = buzzOnMs.toLong().coerceAtLeast(1L)
@@ -61,7 +109,23 @@ data class SoundProfile(
         return out.toLongArray()
     }
 
+    /**
+     * The vibrator's `repeat` index for this profile's waveform.
+     *
+     * [REPEAT_NONE] for a custom buzz — its repetitions are already unrolled
+     * into the array (trap 6). A preset returns [REPEAT_FROM_START], which is
+     * the one place looping forever is what we want: the preset buzzes until
+     * "Vibration Stops After" fires, the alarm auto-resolves, or the user acts,
+     * and every one of those paths already cancels the vibrator.
+     */
+    fun vibrationRepeatIndex(): Int =
+        if (vibrationPreset == VibrationPreset.CUSTOM) REPEAT_NONE else REPEAT_FROM_START
+
     companion object {
+        /** Vibrator repeat indices: play once, or loop from the first element. */
+        const val REPEAT_NONE = -1
+        const val REPEAT_FROM_START = 0
+
         /** Upper bound of the "number of buzzes" / "repetitions" sliders. */
         const val MAX_COUNT = 10
 
