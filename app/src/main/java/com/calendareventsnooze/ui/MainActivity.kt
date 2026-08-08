@@ -3,6 +3,7 @@ package com.calendareventsnooze.ui
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -87,6 +88,13 @@ class MainActivity : ComponentActivity() {
 
 private val TAB_TITLES = listOf("Home", "Snooze Buttons", "Sound & Vibration")
 
+/**
+ * UI.27.4 — one scale for both tab rows: the primary tabs here and the sound
+ * mode sub-tabs in SoundProfileScreen, which reads it from here so the two can
+ * never drift apart.
+ */
+const val TAB_LABEL_SCALE = 1.15f
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun MainScreen(openHomeRequest: Int) {
@@ -99,6 +107,13 @@ private fun MainScreen(openHomeRequest: Int) {
     // was last open. Keyed on the counter, not a flag, so a second tap works too.
     LaunchedEffect(openHomeRequest) {
         if (openHomeRequest > 0) pagerState.scrollToPage(0)
+    }
+
+    // UI.28 — back goes to Home first, and only closes the app from Home.
+    // Disabled on Home so the system default (finish the activity) applies
+    // rather than this swallowing the gesture.
+    BackHandler(enabled = pagerState.currentPage != 0) {
+        scope.launch { pagerState.animateScrollToPage(0) }
     }
 
     // UI.11 — the Sound & Vibration sub-tab is owned here, not by the screen, so
@@ -156,11 +171,11 @@ private fun MainScreen(openHomeRequest: Int) {
                             // one third of the width on a phone at this size.
                             Text(
                                 title,
-                                // UI.27 — 20% larger than the M3 titleSmall
-                                // these used to be.
+                                // UI.27.4 — the same size as the Sound &
+                                // Vibration sub-tabs, so the two rows match.
                                 style = MaterialTheme.typography.titleSmall.copy(
-                                    fontSize =
-                                        MaterialTheme.typography.titleSmall.fontSize * 1.2f
+                                    fontSize = MaterialTheme.typography.titleSmall.fontSize *
+                                        TAB_LABEL_SCALE
                                 ),
                                 maxLines = 2,
                                 textAlign = TextAlign.Center,
