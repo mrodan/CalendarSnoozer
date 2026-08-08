@@ -17,6 +17,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -32,6 +33,8 @@ import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.service.AlarmService
 import com.calendareventsnooze.ui.screens.AlarmScreen
 import com.calendareventsnooze.ui.theme.CalendarEventSnoozeTheme
+import com.calendareventsnooze.ui.theme.LocalAlarmPalette
+import com.calendareventsnooze.ui.theme.paletteFor
 import com.calendareventsnooze.util.CalendarLauncher
 import com.calendareventsnooze.util.getAlarmEvent
 import com.calendareventsnooze.util.putAlarmEvent
@@ -86,6 +89,10 @@ class AlarmActivity : ComponentActivity() {
             CalendarEventSnoozeTheme {
                 BackHandler(enabled = true) { /* intentionally empty */ }
 
+                // UI.29 — read per presentation, not once per process, so a
+                // style chosen while an alarm is queued still applies to it.
+                val palette = paletteFor(AppPrefs.getAlarmScreenStyle(applicationContext))
+
                 val event = alarmEventState
                 if (event != null) {
                     val presets = androidx.compose.runtime.remember(event.alarmId) {
@@ -94,21 +101,23 @@ class AlarmActivity : ComponentActivity() {
                     val autoDismissSeconds = androidx.compose.runtime.remember(event.alarmId) {
                         currentAutoDismissSeconds()
                     }
-                    AlarmScreen(
-                        alarmEvent = event,
-                        presets = presets,
-                        autoDismissSeconds = autoDismissSeconds,
-                        onSnooze = { scheduledTimeMs, openCalendar ->
-                            performSnooze(scheduledTimeMs, event, openCalendar)
-                        },
-                        onDismiss = { openCalendar -> performDismiss(event, openCalendar) },
-                        // F.16 — silences output only; the alarm is untouched,
-                        // so no userActionTaken / resolveSent here.
-                        onQuiet = { AlarmService.silenceAlarm(applicationContext) },
-                        // The AlarmService owns auto-dismiss; it resolves the alarm and
-                        // either closes this screen or shows the next one.
-                        onAutoDismissTimeout = { }
-                    )
+                    CompositionLocalProvider(LocalAlarmPalette provides palette) {
+                        AlarmScreen(
+                            alarmEvent = event,
+                            presets = presets,
+                            autoDismissSeconds = autoDismissSeconds,
+                            onSnooze = { scheduledTimeMs, openCalendar ->
+                                performSnooze(scheduledTimeMs, event, openCalendar)
+                            },
+                            onDismiss = { openCalendar -> performDismiss(event, openCalendar) },
+                            // F.16 — silences output only; the alarm is untouched,
+                            // so no userActionTaken / resolveSent here.
+                            onQuiet = { AlarmService.silenceAlarm(applicationContext) },
+                            // The AlarmService owns auto-dismiss; it resolves the alarm
+                            // and either closes this screen or shows the next one.
+                            onAutoDismissTimeout = { }
+                        )
+                    }
                 }
             }
         }

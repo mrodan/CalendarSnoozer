@@ -2,6 +2,7 @@ package com.calendareventsnooze.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.calendareventsnooze.model.AlarmScreenStyle
 import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.MissedAlarmRecord
 import com.calendareventsnooze.model.RingerMode
@@ -21,6 +22,7 @@ object AppPrefs {
     private const val KEY_CALENDAR_PACKAGES = "calendar_packages"
     private const val KEY_AUTO_SNOOZE_PREFIX = "auto_snooze_count_"
     private const val KEY_SOUND_PROFILE_PREFIX = "sound_profile_"
+    private const val KEY_ALARM_SCREEN_STYLE = "alarm_screen_style"
 
     private val gson = Gson()
 
@@ -240,6 +242,22 @@ object AppPrefs {
             autoDismissSnoozeMinutes = DEFAULT_AUTO_SNOOZE_MINUTES,
             autoDismissMaxRetries = DEFAULT_AUTO_SNOOZE_MAX_RETRIES
         )
+    }
+
+    // ---------------------------------------------------------------------
+    // Alarm screen style (UI.29)
+    // ---------------------------------------------------------------------
+
+    /** Stored by name, so an unknown or missing value falls back to Dark. */
+    fun getAlarmScreenStyle(ctx: Context): AlarmScreenStyle {
+        val name = prefs(ctx).getString(KEY_ALARM_SCREEN_STYLE, null)
+            ?: return AlarmScreenStyle.DARK
+        return runCatching { AlarmScreenStyle.valueOf(name) }
+            .getOrDefault(AlarmScreenStyle.DARK)
+    }
+
+    fun setAlarmScreenStyle(ctx: Context, style: AlarmScreenStyle) {
+        prefs(ctx).edit().putString(KEY_ALARM_SCREEN_STYLE, style.name).apply()
     }
 
     fun getSoundProfile(ctx: Context, mode: RingerMode): SoundProfile {

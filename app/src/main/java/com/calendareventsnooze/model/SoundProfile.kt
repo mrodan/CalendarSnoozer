@@ -1,6 +1,16 @@
 package com.calendareventsnooze.model
 
 enum class RingerMode { SOUND_ON, VIBRATE, SILENT }
+
+/**
+ * UI.29 — which colour set the full-screen takeover uses. Chosen explicitly on
+ * the Alarm Screen tab; it deliberately does not follow the phone's light/dark
+ * setting, because the takeover fires on a lock screen at night.
+ */
+enum class AlarmScreenStyle(val label: String) {
+    DARK("Dark Mode"),
+    LIGHT("Light Mode")
+}
 enum class AutoDismissAction { DISMISS, SNOOZE }
 
 /**

@@ -56,21 +56,7 @@ import androidx.compose.ui.unit.dp
 import com.calendareventsnooze.R
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.SnoozePreset
-import com.calendareventsnooze.ui.theme.AlarmBackground
-import com.calendareventsnooze.ui.theme.AlarmCalendar
-import com.calendareventsnooze.ui.theme.AlarmDanger
-import com.calendareventsnooze.ui.theme.AlarmOnCalendar
-import com.calendareventsnooze.ui.theme.AlarmOnDanger
-import com.calendareventsnooze.ui.theme.AlarmOnPrimary
-import com.calendareventsnooze.ui.theme.AlarmOnSecondary
-import com.calendareventsnooze.ui.theme.AlarmOnSurface
-import com.calendareventsnooze.ui.theme.AlarmOnSurfaceMuted
-import com.calendareventsnooze.ui.theme.AlarmOutline
-import com.calendareventsnooze.ui.theme.AlarmPrimary
-import com.calendareventsnooze.ui.theme.AlarmSecondary
-import com.calendareventsnooze.ui.theme.AlarmSurface
-import com.calendareventsnooze.ui.theme.LightOnSecondaryContainer
-import com.calendareventsnooze.ui.theme.LightSecondaryContainer
+import com.calendareventsnooze.ui.theme.LocalAlarmPalette
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.combineDateAndTime
 import com.calendareventsnooze.util.formatEventTime
@@ -97,6 +83,10 @@ fun AlarmScreen(
     onQuiet: () -> Unit,
     onAutoDismissTimeout: () -> Unit
 ) {
+    // UI.29 — which of the two takeover styles the user picked. Provided by
+    // AlarmActivity; defaults to the original dark set.
+    val palette = LocalAlarmPalette.current
+
     var showSpecifyTime by remember { mutableStateOf(false) }
     var showTimeAndDate by remember { mutableStateOf(false) }
     // F.14 — replaces the old "Open Calendar Event" button. Ticking it makes the
@@ -118,7 +108,7 @@ fun AlarmScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AlarmBackground)
+            .background(palette.background)
             .verticalScroll(rememberScrollState())
             .padding(Spacing.xl),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -131,7 +121,7 @@ fun AlarmScreen(
 
         Text(
             alarmEvent.eventTitle,
-            color = AlarmOnSurface,
+            color = palette.onSurface,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
@@ -141,7 +131,7 @@ fun AlarmScreen(
             Spacer(Modifier.height(Spacing.sm))
             Text(
                 timeStr,
-                color = AlarmOnSurfaceMuted,
+                color = palette.onSurfaceMuted,
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center
             )
@@ -151,7 +141,7 @@ fun AlarmScreen(
             Spacer(Modifier.height(Spacing.xs))
             Text(
                 alarmEvent.eventText,
-                color = AlarmOnSurfaceMuted,
+                color = palette.onSurfaceMuted,
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center
             )
@@ -161,7 +151,7 @@ fun AlarmScreen(
             Spacer(Modifier.height(Spacing.md))
             Text(
                 "Auto-dismiss in ${secondsLeft}s",
-                color = AlarmDanger,
+                color = palette.dangerText,
                 style = MaterialTheme.typography.labelLarge,
                 textAlign = TextAlign.Center
             )
@@ -191,9 +181,9 @@ fun AlarmScreen(
                     .weight(1f)
                     .height(ACTION_BUTTON_HEIGHT),
                 shape = MaterialTheme.shapes.large,
-                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmOutline),
+                border = BorderStroke(ACTION_BUTTON_BORDER, palette.outline),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AlarmSecondary, contentColor = AlarmOnSecondary)
+                    containerColor = palette.secondary, contentColor = palette.onSecondary)
             ) {
                 Icon(Icons.Outlined.Schedule, contentDescription = null,
                     modifier = Modifier.size(20.dp))
@@ -206,9 +196,9 @@ fun AlarmScreen(
                     .weight(1f)
                     .height(ACTION_BUTTON_HEIGHT),
                 shape = MaterialTheme.shapes.large,
-                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmOutline),
+                border = BorderStroke(ACTION_BUTTON_BORDER, palette.outline),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AlarmSecondary, contentColor = AlarmOnSecondary)
+                    containerColor = palette.secondary, contentColor = palette.onSecondary)
             ) {
                 Icon(Icons.Outlined.CalendarMonth, contentDescription = null,
                     modifier = Modifier.size(20.dp))
@@ -228,7 +218,7 @@ fun AlarmScreen(
                 .height(72.dp),
             shape = MaterialTheme.shapes.large,
             colors = ButtonDefaults.buttonColors(
-                containerColor = AlarmDanger, contentColor = AlarmOnDanger)
+                containerColor = palette.danger, contentColor = palette.onDanger)
         ) {
             Icon(Icons.Outlined.Close, contentDescription = null, modifier = Modifier.size(24.dp))
             Spacer(Modifier.size(Spacing.sm))
@@ -241,15 +231,15 @@ fun AlarmScreen(
         // action the user then takes, snooze or dismiss, also opens the event.
         //
         // UI.17 — carries the same colours as the "Fire test alarm now" button.
-        // Those are taken from the *light* scheme rather than the live one
-        // because the takeover keeps a fixed palette whatever the system theme
-        // is doing, so this must not flip with it.
+        // UI.29 — those were pinned to the light scheme so the row could not
+        // flip with the system theme; they are now the takeover palette's own
+        // calendar role, which follows the chosen style and nothing else.
         Spacer(Modifier.height(Spacing.lg))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(MaterialTheme.shapes.large)
-                .background(LightSecondaryContainer)
+                .background(palette.calendar)
                 .clickable { openCalendarAfter = !openCalendarAfter }
                 .padding(horizontal = Spacing.lg, vertical = Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
@@ -259,22 +249,22 @@ fun AlarmScreen(
                 checked = openCalendarAfter,
                 onCheckedChange = { openCalendarAfter = it },
                 colors = CheckboxDefaults.colors(
-                    checkedColor = LightOnSecondaryContainer,
-                    checkmarkColor = LightSecondaryContainer,
-                    uncheckedColor = LightOnSecondaryContainer
+                    checkedColor = palette.onCalendar,
+                    checkmarkColor = palette.calendar,
+                    uncheckedColor = palette.onCalendar
                 )
             )
             Spacer(Modifier.size(Spacing.sm))
             Text(
                 "Also Open Calendar Event",
-                color = LightOnSecondaryContainer,
+                color = palette.onCalendar,
                 style = MaterialTheme.typography.titleMedium
             )
             Spacer(Modifier.size(Spacing.sm))
             Icon(
                 painter = painterResource(R.drawable.ic_calendar_snooze),
                 contentDescription = null,
-                tint = LightOnSecondaryContainer,
+                tint = palette.onCalendar,
                 modifier = Modifier.size(28.dp)
             )
         }
@@ -295,10 +285,10 @@ fun AlarmScreen(
                     .fillMaxWidth(1f / 3f)
                     .height(56.dp),
                 shape = MaterialTheme.shapes.large,
-                border = BorderStroke(ACTION_BUTTON_BORDER, AlarmOutline),
+                border = BorderStroke(ACTION_BUTTON_BORDER, palette.outline),
                 colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = AlarmBackground,
-                    contentColor = AlarmOnSurface
+                    containerColor = palette.background,
+                    contentColor = palette.onSurface
                 )
             ) {
                 Text("Shhhh", style = MaterialTheme.typography.titleMedium)
@@ -337,17 +327,18 @@ private fun PresetButton(
     modifier: Modifier,
     onSnooze: (Long) -> Unit
 ) {
+    val palette = LocalAlarmPalette.current
     Button(
         onClick = { preset?.let { onSnooze(System.currentTimeMillis() + it.minutes * 60_000L) } },
         enabled = preset != null,
         modifier = modifier.height(ACTION_BUTTON_HEIGHT),
         shape = MaterialTheme.shapes.large,
-        border = BorderStroke(ACTION_BUTTON_BORDER, AlarmOutline),
+        border = BorderStroke(ACTION_BUTTON_BORDER, palette.outline),
         colors = ButtonDefaults.buttonColors(
-            containerColor = AlarmPrimary,
-            contentColor = AlarmOnPrimary,
-            disabledContainerColor = AlarmSecondary,
-            disabledContentColor = AlarmOnSurfaceMuted
+            containerColor = palette.primary,
+            contentColor = palette.onPrimary,
+            disabledContainerColor = palette.secondary,
+            disabledContentColor = palette.onSurfaceMuted
         )
     ) {
         Text(
@@ -361,6 +352,7 @@ private fun PresetButton(
 
 @Composable
 private fun SectionDivider(label: String) {
+    val palette = LocalAlarmPalette.current
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -370,19 +362,19 @@ private fun SectionDivider(label: String) {
             Modifier
                 .weight(1f)
                 .height(1.dp)
-                .background(AlarmOutline)
+                .background(palette.outline)
         )
         if (label.isNotEmpty()) {
             Text(
                 "  $label  ",
-                color = AlarmOnSurfaceMuted,
+                color = palette.onSurfaceMuted,
                 style = MaterialTheme.typography.labelLarge
             )
             Box(
                 Modifier
                     .weight(1f)
                     .height(1.dp)
-                    .background(AlarmOutline)
+                    .background(palette.outline)
             )
         }
     }
