@@ -1,5 +1,6 @@
 package com.calendareventsnooze.ui
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -42,8 +43,22 @@ import com.calendareventsnooze.ui.theme.LocalAppBarColors
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        /** F.17 — set by the missed-alarm notification: show the Home tab. */
+        const val EXTRA_OPEN_HOME = "ces_open_home"
+    }
+
+    /**
+     * F.17 — bumped whenever an intent asks for Home, so a tap on the missed
+     * alarm notification moves the pager even when the activity was already
+     * running on another tab.
+     */
+    private var openHomeRequest by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent?.getBooleanExtra(EXTRA_OPEN_HOME, false) == true) openHomeRequest++
         // Android 15+ forces edge-to-edge for targetSdk 35 anyway; opting in
         // explicitly means Android 14 and newer releases lay out identically
         // instead of the bars changing appearance across versions.
@@ -57,10 +72,16 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainScreen()
+                    MainScreen(openHomeRequest = openHomeRequest)
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_HOME, false)) openHomeRequest++
     }
 }
 
@@ -68,11 +89,17 @@ private val TAB_TITLES = listOf("Home", "Snooze Buttons", "Sound & Vibration")
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun MainScreen() {
+private fun MainScreen(openHomeRequest: Int) {
     // M3.1 — one pager drives both the tab row and the swipe gesture, so the
     // two can never disagree about which tab is showing.
     val pagerState = rememberPagerState(pageCount = { TAB_TITLES.size })
     val scope = rememberCoroutineScope()
+
+    // F.17 — a tap on the missed-alarm notification lands on Home whichever tab
+    // was last open. Keyed on the counter, not a flag, so a second tap works too.
+    LaunchedEffect(openHomeRequest) {
+        if (openHomeRequest > 0) pagerState.scrollToPage(0)
+    }
 
     // UI.11 — the Sound & Vibration sub-tab is owned here, not by the screen, so
     // it survives navigating away to another tab and back.
@@ -129,7 +156,12 @@ private fun MainScreen() {
                             // one third of the width on a phone at this size.
                             Text(
                                 title,
-                                style = MaterialTheme.typography.titleSmall,
+                                // UI.27 — 20% larger than the M3 titleSmall
+                                // these used to be.
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontSize =
+                                        MaterialTheme.typography.titleSmall.fontSize * 1.2f
+                                ),
                                 maxLines = 2,
                                 textAlign = TextAlign.Center,
                                 overflow = TextOverflow.Ellipsis

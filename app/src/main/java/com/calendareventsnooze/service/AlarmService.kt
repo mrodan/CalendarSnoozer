@@ -24,6 +24,7 @@ import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.ui.AlarmActivity
+import com.calendareventsnooze.ui.MainActivity
 import com.calendareventsnooze.util.getAlarmEvent
 import com.calendareventsnooze.util.play
 import com.calendareventsnooze.util.putAlarmEvent
@@ -569,10 +570,23 @@ class AlarmService : Service() {
     }
 
     private fun showMissedNotification(title: String) {
+        // F.17 — the notification had no content intent, so tapping it did
+        // nothing at all. It now opens the Home tab, which is where the alarm
+        // it is telling the user about has just been filed (F.15).
+        val open = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(MainActivity.EXTRA_OPEN_HOME, true)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val notif = NotificationCompat.Builder(this, "ces_missed")
             .setContentTitle("Missed Calendar Alarm")
             .setContentText(title)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentIntent(open)
             .setAutoCancel(true)
             .build()
         getSystemService(NotificationManager::class.java)
