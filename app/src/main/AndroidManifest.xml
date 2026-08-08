@@ -63,11 +63,24 @@
             </intent-filter>
         </activity>
 
-        <!-- Full-screen alarm activity — completely separate from MainActivity -->
+        <!--
+          Full-screen alarm activity — completely separate from MainActivity.
+
+          B.7 — the takeover must never be what the user comes back to. It is
+          singleInstance, so it owns its own task, and that task used to survive
+          in recents after the alarm was resolved: re-entering the app from the
+          overview replayed the task's base intent and the takeover reopened for
+          an alarm that no longer existed. excludeFromRecents keeps it out of the
+          overview entirely and autoRemoveFromRecents drops the task once the
+          last activity finishes, so "CalendarSnoozer" in recents can only ever
+          be MainActivity.
+        -->
         <activity
             android:name=".ui.AlarmActivity"
             android:exported="true"
             android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:autoRemoveFromRecents="true"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
             android:theme="@style/Theme.CalendarEventSnooze.Alarm"

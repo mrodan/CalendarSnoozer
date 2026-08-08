@@ -51,7 +51,7 @@ class AlarmActivity : ComponentActivity() {
             val resolvedId = intent?.getStringExtra(AlarmService.EXTRA_ALARM_ID)
             val showing = alarmEventState?.alarmId
             if (resolvedId == null || showing == null || resolvedId == showing) {
-                if (!isFinishing) finish()
+                closeTakeover()
             }
         }
     }
@@ -112,6 +112,20 @@ class AlarmActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * B.7 — closing the takeover has to take its whole task with it. This
+     * activity is `singleInstance`, so it is the root of a task of its own; a
+     * plain `finish()` leaves that task in recents with the alarm intent as its
+     * base, and returning to the app from the overview replays it — the takeover
+     * reappears for an alarm the user already snoozed or dismissed.
+     * `finishAndRemoveTask()` drops the task record along with the activity, so
+     * the only CalendarSnoozer entry left in recents is MainActivity.
+     */
+    private fun closeTakeover() {
+        if (isFinishing || isDestroyed) return
+        finishAndRemoveTask()
     }
 
     private fun hideSystemBars() {
@@ -245,9 +259,9 @@ class AlarmActivity : ComponentActivity() {
     private fun openCalendarThenFinish(alarmEvent: AlarmEvent) {
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
-            override fun onDismissSucceeded() { launchCalendar(alarmEvent); finish() }
-            override fun onDismissCancelled() { finish() }
-            override fun onDismissError()     { launchCalendar(alarmEvent); finish() }
+            override fun onDismissSucceeded() { launchCalendar(alarmEvent); closeTakeover() }
+            override fun onDismissCancelled() { closeTakeover() }
+            override fun onDismissError()     { launchCalendar(alarmEvent); closeTakeover() }
         })
     }
 
