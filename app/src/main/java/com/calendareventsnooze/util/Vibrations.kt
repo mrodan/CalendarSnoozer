@@ -19,6 +19,14 @@ fun vibratorOf(context: Context): Vibrator =
         context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
     }
 
+/**
+ * How long a once-through [waveform] takes, in ms — the initial delay plus
+ * every on and off segment. F.18 uses it to know when a test has finished so
+ * the button can go back to saying "Test Vibration"; the vibrator itself gives
+ * no completion callback.
+ */
+fun waveformDurationMs(waveform: LongArray): Long = waveform.sum()
+
 /** Plays [waveform] exactly once. Shared by the alarm and the F.9 test button. */
 fun Vibrator.playOnce(waveform: LongArray) = play(waveform, NO_REPEAT)
 
