@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -57,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -149,11 +151,21 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     // F.10 — the ringtone's display name ("Castle"), resolved from the URI.
     val soundTitle = remember(soundUri) { ringtoneTitle(context, soundUri) }
     var alarmVolume by remember(mode) { mutableIntStateOf(initial.alarmVolumePercent) }
+    var soundDelaySeconds by remember(mode) {
+        mutableStateOf(initial.soundDelaySeconds.toString())
+    }
     var fadeInSeconds by remember(mode) {
         mutableStateOf(initial.fadeInSeconds.toString())
     }
     var stopsAfterSeconds by remember(mode) {
         mutableStateOf(initial.soundStopsAfterSeconds.toString())
+    }
+    // UI.22 — the vibration counterparts of the two sound timings.
+    var vibrationDelaySeconds by remember(mode) {
+        mutableStateOf(initial.vibrationDelaySeconds.toString())
+    }
+    var vibrationStopsAfterSeconds by remember(mode) {
+        mutableStateOf(initial.vibrationStopsAfterSeconds.toString())
     }
     var vibrationEnabled by remember(mode) { mutableStateOf(initial.vibrationEnabled) }
     // F.7 — the five vibration sliders. Each holds the *index* of its stop, so a
@@ -208,8 +220,10 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
     // button. Keying the effect on all editable state means no change can be
     // missed, whichever control produced it.
     LaunchedEffect(
-        soundEnabled, soundUri, alarmVolume, fadeInSeconds, stopsAfterSeconds,
-        vibrationEnabled, buzzOnIdx, buzzOffIdx, buzzesIdx,
+        soundEnabled, soundUri, alarmVolume, soundDelaySeconds, fadeInSeconds,
+        stopsAfterSeconds,
+        vibrationEnabled, vibrationDelaySeconds, vibrationStopsAfterSeconds,
+        buzzOnIdx, buzzOffIdx, buzzesIdx,
         patternDelayIdx, repetitionsIdx,
         soundStartsFirst, secondDelay, autoDismissSeconds, autoSnoozeMinutes, maxRetries,
         autoDismissAction
@@ -221,10 +235,15 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 soundEnabled = soundEnabled,
                 soundUri = soundUri,
                 alarmVolumePercent = alarmVolume,
+                soundDelaySeconds = soundDelaySeconds.toIntOrNull()?.coerceAtLeast(0) ?: 0,
                 fadeInSeconds = fadeInSeconds.toIntOrNull()?.coerceAtLeast(0) ?: 0,
                 soundStopsAfterSeconds = stopsAfterSeconds.toIntOrNull()
                     ?.coerceAtLeast(0) ?: 0,
                 vibrationEnabled = vibrationEnabled,
+                vibrationDelaySeconds = vibrationDelaySeconds.toIntOrNull()
+                    ?.coerceAtLeast(0) ?: 0,
+                vibrationStopsAfterSeconds = vibrationStopsAfterSeconds.toIntOrNull()
+                    ?.coerceAtLeast(0) ?: 0,
                 buzzOnMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOnIdx],
                 buzzOffMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOffIdx],
                 buzzesPerPattern = buzzesIdx + 1,
@@ -331,15 +350,21 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
 
             Spacer(Modifier.height(Spacing.md))
             NumberField(
+                value = soundDelaySeconds,
+                onValueChange = { soundDelaySeconds = it },
+                label = "Sound Delay (seconds) — 0 for none"
+            )
+            Spacer(Modifier.height(Spacing.md))
+            NumberField(
                 value = fadeInSeconds,
                 onValueChange = { fadeInSeconds = it },
-                label = "Alarm Fade In (seconds) — 0 for none"
+                label = "Sound Fade In (seconds) — 0 for none"
             )
             Spacer(Modifier.height(Spacing.md))
             NumberField(
                 value = stopsAfterSeconds,
                 onValueChange = { stopsAfterSeconds = it },
-                label = "Alarm Stops After (seconds) — 0 to keep sounding"
+                label = "Sound Stops After (seconds) — 0 to keep sounding"
             )
             }
             }
@@ -380,9 +405,12 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                         soundEnabled = false,
                         soundUri = null,
                         alarmVolumePercent = AppPrefs.DEFAULT_ALARM_VOLUME_PERCENT,
+                        soundDelaySeconds = 0,
                         fadeInSeconds = 0,
                         soundStopsAfterSeconds = 0,
                         vibrationEnabled = true,
+                        vibrationDelaySeconds = 0,
+                        vibrationStopsAfterSeconds = 0,
                         buzzOnMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOnIdx],
                         buzzOffMs = SoundProfile.BUZZ_LENGTH_OPTIONS[buzzOffIdx],
                         buzzesPerPattern = buzzesIdx + 1,
@@ -415,6 +443,20 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
             OptionSlider("Number of Pattern Repetitions", COUNT_LABELS, repetitionsIdx) {
                 repetitionsIdx = it
             }
+
+            // UI.22 — the timings that mirror the sound section's.
+            Spacer(Modifier.height(Spacing.lg))
+            NumberField(
+                value = vibrationDelaySeconds,
+                onValueChange = { vibrationDelaySeconds = it },
+                label = "Vibration Delay (seconds) — 0 for none"
+            )
+            Spacer(Modifier.height(Spacing.md))
+            NumberField(
+                value = vibrationStopsAfterSeconds,
+                onValueChange = { vibrationStopsAfterSeconds = it },
+                label = "Vibration Stops After (seconds) — 0 to keep vibrating"
+            )
             }
             }
         }
@@ -457,14 +499,23 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
 
         // ---- Auto-snooze / auto-dismiss ----
         SettingsSection("Auto-Snooze / Auto-Dismiss") {
-            // UI.7 — one switch replaces the "Auto-snooze and retry" /
-            // "Dismiss immediately (no retry)" radio pair.
-            SwitchRow("Auto-Snooze ON", autoDismissAction == AutoDismissAction.SNOOZE) { on ->
-                autoDismissAction =
-                    if (on) AutoDismissAction.SNOOZE else AutoDismissAction.DISMISS
+            // UI.20 — a two-way choice rather than an on/off switch, matching
+            // the Sequencing control. Each side owns its own fields below.
+            val autoSnooze = autoDismissAction == AutoDismissAction.SNOOZE
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = autoSnooze,
+                    onClick = { autoDismissAction = AutoDismissAction.SNOOZE },
+                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                ) { Text("Auto-Snooze", style = MaterialTheme.typography.labelLarge) }
+                SegmentedButton(
+                    selected = !autoSnooze,
+                    onClick = { autoDismissAction = AutoDismissAction.DISMISS },
+                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                ) { Text("Auto-Dismiss", style = MaterialTheme.typography.labelLarge) }
             }
-            // UI.16 — none of these apply when auto-snooze is off.
-            AnimatedVisibility(visible = autoDismissAction == AutoDismissAction.SNOOZE) {
+
+            AnimatedVisibility(visible = autoSnooze) {
             Column {
             Spacer(Modifier.height(Spacing.lg))
             NumberField(
@@ -489,6 +540,20 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                 "0 attempts = dismiss immediately. 3 = snooze 3 times, then dismiss.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            }
+            }
+
+            // Auto-Dismiss has a single timing: how long before it gives up.
+            // It shares autoDismissSeconds with the snooze branch, so the value
+            // carries across when the user flips between the two.
+            AnimatedVisibility(visible = !autoSnooze) {
+            Column {
+            Spacer(Modifier.height(Spacing.lg))
+            NumberField(
+                value = autoDismissSeconds,
+                onValueChange = { autoDismissSeconds = it },
+                label = "Trigger Auto-Dismiss after (seconds) — 0 to disable"
             )
             }
             }
@@ -530,7 +595,18 @@ private fun SettingsSection(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.padding(Spacing.lg)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // UI.23 — the heading sits on its own tonal band. M3 says to lift a
+            // header off its card with the next surface-container step rather
+            // than a divider or an arbitrary tint, so the card stays
+            // surfaceContainerLow and this goes one level up.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     title,
                     // UI.18 — 25% larger than the M3 titleMedium these used to be.
