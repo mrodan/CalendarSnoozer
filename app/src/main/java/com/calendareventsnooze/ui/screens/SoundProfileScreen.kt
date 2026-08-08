@@ -576,7 +576,14 @@ private fun ProfileEditor(mode: RingerMode, scrollState: ScrollState) {
                     runCatching { vibratorOf(context).cancel() }
                     vibrationTesting = false
                 },
-                onDismiss = { showBuzzDialog = false }
+                // UI.25.3 — leaving the dialog ends the test with it. The
+                // dialog is where the buzz was being felt, so a test that
+                // carried on behind it would be buzzing for no visible reason.
+                onDismiss = {
+                    runCatching { vibratorOf(context).cancel() }
+                    vibrationTesting = false
+                    showBuzzDialog = false
+                }
             )
         }
 
