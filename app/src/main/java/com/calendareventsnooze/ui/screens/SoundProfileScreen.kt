@@ -58,7 +58,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -594,17 +593,22 @@ private fun SettingsSection(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
-        Column(Modifier.padding(Spacing.lg)) {
+        Column {
             // UI.23 — the heading sits on its own tonal band. M3 says to lift a
             // header off its card with the next surface-container step rather
             // than a divider or an arbitrary tint, so the card stays
             // surfaceContainerLow and this goes one level up.
+            //
+            // The band runs to the card's own edges rather than sitting inset
+            // inside it: the card clips its content, so the two top corners
+            // follow the card's radius while the bottom edge stays a straight
+            // line from side to side. It therefore carries the card's horizontal
+            // padding itself, and the section body below supplies its own.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(MaterialTheme.shapes.medium)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -625,8 +629,7 @@ private fun SettingsSection(
                     )
                 }
             }
-            Spacer(Modifier.height(Spacing.md))
-            content()
+            Column(Modifier.padding(Spacing.lg)) { content() }
         }
     }
 }
