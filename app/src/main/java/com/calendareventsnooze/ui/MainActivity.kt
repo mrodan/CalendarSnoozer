@@ -86,7 +86,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val TAB_TITLES = listOf("Home", "Snooze Buttons", "Sound & Vibration")
+// UI.29 — the middle tab owns the snooze buttons and the takeover's styles, so
+// it is named after the screen both belong to rather than after one of them.
+private val TAB_TITLES = listOf("Home", "Alarm Screen", "Sound & Vibration")
 
 /**
  * UI.27.4 — one scale for both tab rows: the primary tabs here and the sound

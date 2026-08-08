@@ -250,6 +250,15 @@ does not remove the record. Read the task's `intent=` flags instead:
 appears on the line below. What must be true *after* the alarm is resolved is
 that no task with `baseIntent … AlarmActivity` remains at all.
 
+**18. `OutlinedTextField` cannot simply be made shorter.**
+Its decoration box reserves a fixed slice for the floating label and centres the
+input in what is left, so `Modifier.height(48.dp)` renders the *value* clipped
+in half rather than a shorter field — it looks fine in a layout preview and
+wrong the moment there is text in it. Shrinking one means driving
+`OutlinedTextFieldDefaults.DecorationBox` from a `BasicTextField` and taking the
+height out of `contentPadding`, which is what `CompactTextField` in
+`SnoozePresetsScreen.kt` does.
+
 ---
 
 ## Design system (M3.1)
@@ -272,10 +281,24 @@ The UI is Material Design 3 throughout. `ui/theme/` owns it:
 - Destructive actions (Force Stop, Cancel Snooze, Dismiss) take the M3 **error**
   roles, not an arbitrary red.
 
-The **alarm takeover is the one exception**: it keeps its own always-dark
-`Alarm*` colours instead of following the system scheme, because it fires on a
-lock screen at night and needs maximum contrast. It still uses M3 shape, type
-and spacing.
+The **alarm takeover is the one exception**: it never follows the system scheme,
+because it fires on a lock screen at night. Since UI.29 it has two of its own
+colour sets — `DarkAlarmPalette` and `LightAlarmPalette` in
+`ui/theme/AlarmPalette.kt` — chosen explicitly on the Alarm Screen tab and
+provided through `LocalAlarmPalette`; the default is dark. `AlarmScreen` must
+read every colour from that local, never from an `Alarm*` constant directly, or
+one style silently keeps the other's colours. It still uses M3 shape, type and
+spacing.
+
+Two roles in there are easy to get wrong:
+
+- **`danger` is a container colour, `dangerText` is not.** The auto-dismiss
+  countdown is loose text on the background. Painting it with `danger` is fine
+  on the dark ground and near-invisible on the light one — pale pink on
+  near-white, caught on the phone.
+- **`calendar` is deliberately the same in both palettes.** UI.17 asked the
+  "Also Open Calendar Event" row to carry the "Fire test alarm now" colours;
+  routing it through the palette must not restyle it as a side effect.
 
 ## Conventions
 
@@ -309,6 +332,13 @@ Non-obvious testing facts:
   open-specific-event path cannot be verified there — it needs the real phone.
 - `uiautomator dump` + regex on the XML is more reliable than screenshots for
   assertions; use screenshots for visual checks only (they cost a lot of context).
+- **To prove a vibration is live, read `CurrentVibration` — not `currentState`.**
+  In `dumpsys vibrator_manager`, `currentState = IDLE` is the amplitude between
+  the on-segments of a waveform and reads IDLE while the vibration is very much
+  running. The authoritative line is `CurrentVibration: … status = running`,
+  which becomes `null` once it is cancelled. `Recent vibrations` also shows each
+  one's actual duration, which is how a cut-short test can be told from one that
+  ran to completion.
 - **Don't regex the whole UI dump for a screen's identity.** The tab labels are
   in every dump, so matching "Snooze Buttons" proves nothing about which tab is
   showing. Match on content unique to that screen ("No snoozed alarms",
