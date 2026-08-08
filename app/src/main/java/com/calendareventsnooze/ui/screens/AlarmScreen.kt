@@ -285,7 +285,10 @@ fun AlarmScreen(
         // looking — it shares the screen's own background so it cannot be
         // mistaken for one of the actions above.
         Spacer(Modifier.height(Spacing.lg))
-        Row(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
             OutlinedButton(
                 onClick = onQuiet,
                 modifier = Modifier
