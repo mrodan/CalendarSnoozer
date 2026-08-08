@@ -129,9 +129,21 @@ data class SoundProfile(
         /** Upper bound of the "number of buzzes" / "repetitions" sliders. */
         const val MAX_COUNT = 10
 
-        /** F.10 — the alarm volume slider never reaches silence. */
-        const val MIN_VOLUME_PERCENT = 1
+        /**
+         * F.10 — the alarm volume slider never reaches silence; "Enable sound
+         * alarm" is what turns sound off, and a 0% alarm would be inaudible
+         * with nothing on screen explaining why.
+         *
+         * UI.25.5 — it moves in steps of 10, so the lowest stop is 10%.
+         */
+        const val MIN_VOLUME_PERCENT = 10
         const val MAX_VOLUME_PERCENT = 100
+        const val VOLUME_STEP_PERCENT = 10
+
+        /** Snaps a stored volume onto the nearest UI.25.5 stop. */
+        fun snapVolume(percent: Int): Int =
+            (Math.round(percent / VOLUME_STEP_PERCENT.toFloat()) * VOLUME_STEP_PERCENT)
+                .coerceIn(MIN_VOLUME_PERCENT, MAX_VOLUME_PERCENT)
 
         /** Buzz-On / Buzz-Off slider stops, in ms (S, M, L, XL, XXL). */
         val BUZZ_LENGTH_OPTIONS = listOf(250, 500, 1000, 2000, 3000)

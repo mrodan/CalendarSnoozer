@@ -24,11 +24,11 @@ object AppPrefs {
 
     private val gson = Gson()
 
-    // F.7 — vibration defaults. These match the slider presets: M / M / 5 / L / 5.
-    const val DEFAULT_BUZZ_ON_MS = 500
-    const val DEFAULT_BUZZ_OFF_MS = 500
+    // UI.25.3 — what "Customize your Buzz" opens with: M / L / 5 / XL / 5.
+    const val DEFAULT_BUZZ_ON_MS = 500      // M
+    const val DEFAULT_BUZZ_OFF_MS = 1000    // L
     const val DEFAULT_BUZZES_PER_PATTERN = 5
-    const val DEFAULT_PATTERN_DELAY_MS = 2000
+    const val DEFAULT_PATTERN_DELAY_MS = 3000 // XL
     const val DEFAULT_VIBRATION_REPETITIONS = 5
 
     /**
@@ -42,8 +42,8 @@ object AppPrefs {
      */
     val DEFAULT_VIBRATION_PRESET = VibrationPreset.MEDIUM
 
-    // F.10 — sound shaping defaults: full volume, no fade, no cut-off.
-    const val DEFAULT_ALARM_VOLUME_PERCENT = 100
+    // F.10 / UI.25.4 — sound shaping defaults: half volume, no fade, no cut-off.
+    const val DEFAULT_ALARM_VOLUME_PERCENT = 50
     const val DEFAULT_FADE_IN_SECONDS = 0
     const val DEFAULT_SOUND_STOPS_AFTER_SECONDS = 0
 
@@ -54,8 +54,10 @@ object AppPrefs {
      */
     const val DEFAULT_SECOND_START_DELAY_SECONDS = 5
 
-    // UI.20 — the auto-snooze presets, identical in all three ringer modes.
-    const val DEFAULT_AUTO_TRIGGER_SECONDS = 60
+    // UI.20 / UI.25.4 — the auto-snooze presets, identical in all three ringer
+    // modes. The trigger is shared by both branches, so Auto-Dismiss starts at
+    // 30 seconds too.
+    const val DEFAULT_AUTO_TRIGGER_SECONDS = 30
     const val DEFAULT_AUTO_SNOOZE_MINUTES = 10
     const val DEFAULT_AUTO_SNOOZE_MAX_RETRIES = 2
 
@@ -180,7 +182,8 @@ object AppPrefs {
             buzzesPerPattern = DEFAULT_BUZZES_PER_PATTERN,
             delayBetweenPatternsMs = DEFAULT_PATTERN_DELAY_MS,
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
-            soundStartsFirst = true,
+            // UI.25.4 — vibration leads, sound follows after the delay below.
+            soundStartsFirst = false,
             secondStartDelaySeconds = DEFAULT_SECOND_START_DELAY_SECONDS,
             autoDismissSeconds = DEFAULT_AUTO_TRIGGER_SECONDS,
             autoDismissAction = AutoDismissAction.SNOOZE,
@@ -204,7 +207,8 @@ object AppPrefs {
             buzzesPerPattern = DEFAULT_BUZZES_PER_PATTERN,
             delayBetweenPatternsMs = DEFAULT_PATTERN_DELAY_MS,
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
-            soundStartsFirst = true,
+            // UI.25.4 — vibration leads, sound follows after the delay below.
+            soundStartsFirst = false,
             secondStartDelaySeconds = DEFAULT_SECOND_START_DELAY_SECONDS,
             autoDismissSeconds = DEFAULT_AUTO_TRIGGER_SECONDS,
             autoDismissAction = AutoDismissAction.SNOOZE,
@@ -228,7 +232,8 @@ object AppPrefs {
             buzzesPerPattern = DEFAULT_BUZZES_PER_PATTERN,
             delayBetweenPatternsMs = DEFAULT_PATTERN_DELAY_MS,
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
-            soundStartsFirst = true,
+            // UI.25.4 — vibration leads, sound follows after the delay below.
+            soundStartsFirst = false,
             secondStartDelaySeconds = DEFAULT_SECOND_START_DELAY_SECONDS,
             autoDismissSeconds = DEFAULT_AUTO_TRIGGER_SECONDS,
             autoDismissAction = AutoDismissAction.SNOOZE,
