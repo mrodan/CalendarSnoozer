@@ -3,6 +3,7 @@ package com.calendareventsnooze.data
 import android.content.Context
 import android.content.SharedPreferences
 import com.calendareventsnooze.model.AutoDismissAction
+import com.calendareventsnooze.model.MissedAlarmRecord
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.model.SnoozedAlarmRecord
@@ -15,6 +16,7 @@ object AppPrefs {
     private const val PREFS_NAME = "ces_prefs"
     private const val KEY_SNOOZE_PRESETS = "snooze_presets"
     private const val KEY_SNOOZED_ALARMS = "snoozed_alarms"
+    private const val KEY_MISSED_ALARMS = "missed_alarms"
     private const val KEY_CALENDAR_PACKAGES = "calendar_packages"
     private const val KEY_AUTO_SNOOZE_PREFIX = "auto_snooze_count_"
     private const val KEY_SOUND_PROFILE_PREFIX = "sound_profile_"
@@ -39,6 +41,11 @@ object AppPrefs {
      * vibration both on) it already reads "Sound first, 5 seconds".
      */
     const val DEFAULT_SECOND_START_DELAY_SECONDS = 5
+
+    // UI.20 — the auto-snooze presets, identical in all three ringer modes.
+    const val DEFAULT_AUTO_TRIGGER_SECONDS = 60
+    const val DEFAULT_AUTO_SNOOZE_MINUTES = 10
+    const val DEFAULT_AUTO_SNOOZE_MAX_RETRIES = 2
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -80,9 +87,12 @@ object AppPrefs {
         val soundEnabled: Boolean,
         val soundUri: String?,
         val alarmVolumePercent: Int?,
+        val soundDelaySeconds: Int?,
         val fadeInSeconds: Int?,
         val soundStopsAfterSeconds: Int?,
         val vibrationEnabled: Boolean,
+        val vibrationDelaySeconds: Int?,
+        val vibrationStopsAfterSeconds: Int?,
         val buzzOnMs: Int?,
         val buzzOffMs: Int?,
         val buzzesPerPattern: Int?,
@@ -98,7 +108,8 @@ object AppPrefs {
 
     private fun SoundProfile.toJson() = SoundProfileJson(
         ringerMode, soundEnabled, soundUri,
-        alarmVolumePercent, fadeInSeconds, soundStopsAfterSeconds, vibrationEnabled,
+        alarmVolumePercent, soundDelaySeconds, fadeInSeconds, soundStopsAfterSeconds,
+        vibrationEnabled, vibrationDelaySeconds, vibrationStopsAfterSeconds,
         buzzOnMs, buzzOffMs, buzzesPerPattern, delayBetweenPatternsMs,
         vibrationRepetitions, soundStartsFirst,
         secondStartDelaySeconds, autoDismissSeconds, autoDismissAction,
@@ -111,10 +122,13 @@ object AppPrefs {
         soundUri = soundUri,
         alarmVolumePercent = (alarmVolumePercent ?: DEFAULT_ALARM_VOLUME_PERCENT)
             .coerceIn(SoundProfile.MIN_VOLUME_PERCENT, SoundProfile.MAX_VOLUME_PERCENT),
+        soundDelaySeconds = (soundDelaySeconds ?: 0).coerceAtLeast(0),
         fadeInSeconds = (fadeInSeconds ?: DEFAULT_FADE_IN_SECONDS).coerceAtLeast(0),
         soundStopsAfterSeconds = (soundStopsAfterSeconds
             ?: DEFAULT_SOUND_STOPS_AFTER_SECONDS).coerceAtLeast(0),
         vibrationEnabled = vibrationEnabled,
+        vibrationDelaySeconds = (vibrationDelaySeconds ?: 0).coerceAtLeast(0),
+        vibrationStopsAfterSeconds = (vibrationStopsAfterSeconds ?: 0).coerceAtLeast(0),
         buzzOnMs = (buzzOnMs ?: DEFAULT_BUZZ_ON_MS).coerceAtLeast(1),
         buzzOffMs = (buzzOffMs ?: DEFAULT_BUZZ_OFF_MS).coerceAtLeast(0),
         buzzesPerPattern = (buzzesPerPattern ?: DEFAULT_BUZZES_PER_PATTERN)
@@ -137,9 +151,12 @@ object AppPrefs {
             soundEnabled = true,
             soundUri = null,
             alarmVolumePercent = DEFAULT_ALARM_VOLUME_PERCENT,
+            soundDelaySeconds = 0,
             fadeInSeconds = DEFAULT_FADE_IN_SECONDS,
             soundStopsAfterSeconds = DEFAULT_SOUND_STOPS_AFTER_SECONDS,
             vibrationEnabled = true,
+            vibrationDelaySeconds = 0,
+            vibrationStopsAfterSeconds = 0,
             buzzOnMs = DEFAULT_BUZZ_ON_MS,
             buzzOffMs = DEFAULT_BUZZ_OFF_MS,
             buzzesPerPattern = DEFAULT_BUZZES_PER_PATTERN,
@@ -147,19 +164,22 @@ object AppPrefs {
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
             secondStartDelaySeconds = DEFAULT_SECOND_START_DELAY_SECONDS,
-            autoDismissSeconds = 60,
+            autoDismissSeconds = DEFAULT_AUTO_TRIGGER_SECONDS,
             autoDismissAction = AutoDismissAction.SNOOZE,
-            autoDismissSnoozeMinutes = 10,
-            autoDismissMaxRetries = 3
+            autoDismissSnoozeMinutes = DEFAULT_AUTO_SNOOZE_MINUTES,
+            autoDismissMaxRetries = DEFAULT_AUTO_SNOOZE_MAX_RETRIES
         )
         RingerMode.VIBRATE -> SoundProfile(
             ringerMode = RingerMode.VIBRATE,
             soundEnabled = false,
             soundUri = null,
             alarmVolumePercent = DEFAULT_ALARM_VOLUME_PERCENT,
+            soundDelaySeconds = 0,
             fadeInSeconds = DEFAULT_FADE_IN_SECONDS,
             soundStopsAfterSeconds = DEFAULT_SOUND_STOPS_AFTER_SECONDS,
             vibrationEnabled = true,
+            vibrationDelaySeconds = 0,
+            vibrationStopsAfterSeconds = 0,
             buzzOnMs = DEFAULT_BUZZ_ON_MS,
             buzzOffMs = DEFAULT_BUZZ_OFF_MS,
             buzzesPerPattern = DEFAULT_BUZZES_PER_PATTERN,
@@ -167,19 +187,22 @@ object AppPrefs {
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
             secondStartDelaySeconds = DEFAULT_SECOND_START_DELAY_SECONDS,
-            autoDismissSeconds = 60,
+            autoDismissSeconds = DEFAULT_AUTO_TRIGGER_SECONDS,
             autoDismissAction = AutoDismissAction.SNOOZE,
-            autoDismissSnoozeMinutes = 10,
-            autoDismissMaxRetries = 3
+            autoDismissSnoozeMinutes = DEFAULT_AUTO_SNOOZE_MINUTES,
+            autoDismissMaxRetries = DEFAULT_AUTO_SNOOZE_MAX_RETRIES
         )
         RingerMode.SILENT -> SoundProfile(
             ringerMode = RingerMode.SILENT,
             soundEnabled = false,
             soundUri = null,
             alarmVolumePercent = DEFAULT_ALARM_VOLUME_PERCENT,
+            soundDelaySeconds = 0,
             fadeInSeconds = DEFAULT_FADE_IN_SECONDS,
             soundStopsAfterSeconds = DEFAULT_SOUND_STOPS_AFTER_SECONDS,
             vibrationEnabled = false,
+            vibrationDelaySeconds = 0,
+            vibrationStopsAfterSeconds = 0,
             buzzOnMs = DEFAULT_BUZZ_ON_MS,
             buzzOffMs = DEFAULT_BUZZ_OFF_MS,
             buzzesPerPattern = DEFAULT_BUZZES_PER_PATTERN,
@@ -187,10 +210,10 @@ object AppPrefs {
             vibrationRepetitions = DEFAULT_VIBRATION_REPETITIONS,
             soundStartsFirst = true,
             secondStartDelaySeconds = DEFAULT_SECOND_START_DELAY_SECONDS,
-            autoDismissSeconds = 30,
+            autoDismissSeconds = DEFAULT_AUTO_TRIGGER_SECONDS,
             autoDismissAction = AutoDismissAction.SNOOZE,
-            autoDismissSnoozeMinutes = 5,
-            autoDismissMaxRetries = 2
+            autoDismissSnoozeMinutes = DEFAULT_AUTO_SNOOZE_MINUTES,
+            autoDismissMaxRetries = DEFAULT_AUTO_SNOOZE_MAX_RETRIES
         )
     }
 
@@ -246,6 +269,44 @@ object AppPrefs {
 
     fun getSnoozedAlarm(ctx: Context, alarmId: String): SnoozedAlarmRecord? =
         readSnoozedMap(ctx)[alarmId]
+
+    // ---------------------------------------------------------------------
+    // Missed Alarms (F.15) — stored as Map<alarmId, MissedAlarmRecord>
+    // ---------------------------------------------------------------------
+
+    private fun readMissedMap(ctx: Context): MutableMap<String, MissedAlarmRecord> {
+        val json = prefs(ctx).getString(KEY_MISSED_ALARMS, null) ?: return mutableMapOf()
+        return try {
+            val type = object : TypeToken<MutableMap<String, MissedAlarmRecord>>() {}.type
+            gson.fromJson<MutableMap<String, MissedAlarmRecord>>(json, type) ?: mutableMapOf()
+        } catch (e: Exception) {
+            mutableMapOf()
+        }
+    }
+
+    private fun writeMissedMap(ctx: Context, map: Map<String, MissedAlarmRecord>) {
+        prefs(ctx).edit().putString(KEY_MISSED_ALARMS, gson.toJson(map)).apply()
+    }
+
+    /**
+     * Files an alarm as missed. Also clears any snooze record for it: the alarm
+     * is over, and leaving both would list it twice.
+     */
+    fun saveMissedAlarm(ctx: Context, record: MissedAlarmRecord) {
+        val map = readMissedMap(ctx)
+        map[record.alarmId] = record
+        writeMissedMap(ctx, map)
+        removeSnoozedAlarm(ctx, record.alarmId)
+    }
+
+    fun removeMissedAlarm(ctx: Context, alarmId: String) {
+        val map = readMissedMap(ctx)
+        if (map.remove(alarmId) != null) writeMissedMap(ctx, map)
+    }
+
+    /** Most recently missed first — the opposite order to snoozed alarms. */
+    fun getAllMissedAlarms(ctx: Context): List<MissedAlarmRecord> =
+        readMissedMap(ctx).values.sortedByDescending { it.missedAtMs }
 
     // ---------------------------------------------------------------------
     // Auto-snooze retry counter

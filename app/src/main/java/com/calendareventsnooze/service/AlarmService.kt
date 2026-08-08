@@ -18,6 +18,7 @@ import androidx.core.app.NotificationCompat
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.AutoDismissAction
+import com.calendareventsnooze.model.MissedAlarmRecord
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
@@ -45,6 +46,22 @@ class AlarmService : Service() {
 
         /** Resolves ONE alarm (by [EXTRA_ALARM_ID]) and resumes the one beneath it. */
         const val ACTION_RESOLVE_ALARM = "com.calendareventsnooze.ACTION_RESOLVE_ALARM"
+
+        /**
+         * F.16 — "Shhhh": silences sound and vibration but leaves the alarm
+         * itself running. The takeover stays up, the notification stays put and
+         * the auto-snooze countdown keeps ticking.
+         */
+        const val ACTION_SILENCE = "com.calendareventsnooze.ACTION_SILENCE"
+
+        /** Silences the current alarm's output without resolving it (F.16). */
+        fun silenceAlarm(context: Context) {
+            runCatching {
+                context.startService(
+                    Intent(context, AlarmService::class.java).setAction(ACTION_SILENCE)
+                )
+            }
+        }
 
         /**
          * B.6 — the user swiped the active-alarm notification away. Since Android
@@ -113,6 +130,9 @@ class AlarmService : Service() {
     /** F.10 — the phone's alarm volume before we overrode it, to restore after. */
     private var previousAlarmVolume: Int? = null
 
+    /** F.16 — the user hit "Shhhh"; suppress output without ending the alarm. */
+    private var silenced = false
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -122,6 +142,15 @@ class AlarmService : Service() {
             ACTION_RESOLVE_ALARM -> {
                 val alarmId = intent.getStringExtra(EXTRA_ALARM_ID)
                 if (alarmId != null) resolveAndAdvance(alarmId) else stopEverything()
+                return START_STICKY
+            }
+            ACTION_SILENCE -> {
+                // F.16 — deliberately does NOT touch the handler queue: the
+                // auto-snooze countdown must survive. `silenced` instead makes
+                // any pending delayed start (sequencing, per-output delay) a
+                // no-op when it fires.
+                silenced = true
+                stopSoundAndVibration()
                 return START_STICKY
             }
             ACTION_REASSERT_NOTIFICATION -> {
@@ -172,6 +201,9 @@ class AlarmService : Service() {
     /** Starts sound, notification and auto-dismiss for whatever is on top. */
     private fun presentTopAlarm(launchActivity: Boolean) {
         val alarmEvent = alarmStack.lastOrNull() ?: return
+        // A newly presented alarm always starts audible, even if the one before
+        // it had been silenced (F.16).
+        silenced = false
 
         startForeground(ACTIVE_ALARM_NOTIF_ID, buildAlarmNotification(alarmEvent))
 
@@ -223,6 +255,9 @@ class AlarmService : Service() {
     private fun stopEverything() {
         silenceCurrentOutput()
         val last = alarmStack.lastOrNull()?.alarmId
+        // F.15 — Force Stop kills alarms the user never resolved, so every one
+        // still on the stack counts as missed.
+        alarmStack.forEach { recordMissed(it) }
         alarmStack.clear()
         tearDown(last)
     }
@@ -333,23 +368,31 @@ class AlarmService : Service() {
     // Sound & vibration
     // ------------------------------------------------------------------
 
+    /**
+     * Works out when each output starts and schedules it.
+     *
+     * Two things stack here. Sequencing decides which output goes first and how
+     * long the *other* one waits; UI.21/UI.22 then add a per-output delay on top
+     * of that. Both default to 0, so a profile that has never touched them
+     * behaves exactly as it did before.
+     */
     private fun startAlarmOutput(profile: SoundProfile) {
-        if (profile.soundStartsFirst) {
-            if (profile.soundEnabled) startSound(profile)
-            if (profile.vibrationEnabled) {
-                if (profile.secondStartDelaySeconds > 0)
-                    handler.postDelayed({ startVibration(profile) },
-                        profile.secondStartDelaySeconds * 1000L)
-                else startVibration(profile)
-            }
+        val sequencingGap = profile.secondStartDelaySeconds.coerceAtLeast(0)
+        val soundOffset = profile.soundDelaySeconds.coerceAtLeast(0) +
+            (if (profile.soundStartsFirst) 0 else sequencingGap)
+        val vibrationOffset = profile.vibrationDelaySeconds.coerceAtLeast(0) +
+            (if (profile.soundStartsFirst) sequencingGap else 0)
+
+        if (profile.soundEnabled) startAfter(soundOffset) { startSound(profile) }
+        if (profile.vibrationEnabled) startAfter(vibrationOffset) { startVibration(profile) }
+    }
+
+    /** Runs [block] now or after [seconds], unless the alarm has been silenced. */
+    private fun startAfter(seconds: Int, block: () -> Unit) {
+        if (seconds <= 0) {
+            if (!silenced) block()
         } else {
-            if (profile.vibrationEnabled) startVibration(profile)
-            if (profile.soundEnabled) {
-                if (profile.secondStartDelaySeconds > 0)
-                    handler.postDelayed({ startSound(profile) },
-                        profile.secondStartDelaySeconds * 1000L)
-                else startSound(profile)
-            }
+            handler.postDelayed({ if (!silenced) block() }, seconds * 1000L)
         }
     }
 
@@ -438,6 +481,20 @@ class AlarmService : Service() {
         // repetitions included, so the vibrator's repeat index stays at
         // NO_REPEAT (it would otherwise loop forever).
         vibrator?.playOnce(profile.buildVibrationWaveform())
+        // UI.22 — optionally cut the buzzing after N seconds. Like the sound
+        // equivalent this leaves the alarm itself running.
+        if (profile.vibrationStopsAfterSeconds > 0) {
+            handler.postDelayed(
+                { stopVibrationOnly() },
+                profile.vibrationStopsAfterSeconds * 1000L
+            )
+        }
+    }
+
+    /** Stops only the buzzing, leaving the alarm (and its sound) running. */
+    private fun stopVibrationOnly() {
+        runCatching { vibrator?.cancel() }
+        vibrator = null
     }
 
     private fun stopSoundAndVibration() {
@@ -451,6 +508,24 @@ class AlarmService : Service() {
         restoreAlarmVolume()
     }
 
+    /**
+     * F.15 — files an alarm the user never acted on into the Missed list. Also
+     * clears its snooze record, so it appears in exactly one of the two.
+     */
+    private fun recordMissed(alarmEvent: AlarmEvent) {
+        AppPrefs.saveMissedAlarm(
+            applicationContext,
+            MissedAlarmRecord(
+                alarmId     = alarmEvent.alarmId,
+                eventTitle  = alarmEvent.eventTitle,
+                eventText   = alarmEvent.eventText,
+                eventId     = alarmEvent.eventId,
+                eventTimeMs = alarmEvent.eventTimeMs,
+                missedAtMs  = System.currentTimeMillis()
+            )
+        )
+    }
+
     // ------------------------------------------------------------------
     // Auto-dismiss / auto-snooze
     // ------------------------------------------------------------------
@@ -460,7 +535,7 @@ class AlarmService : Service() {
         if (profile.autoDismissMaxRetries == 0 ||
             profile.autoDismissAction == AutoDismissAction.DISMISS) {
             AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
-            AppPrefs.removeSnoozedAlarm(applicationContext, alarmEvent.alarmId)
+            recordMissed(alarmEvent)
             showMissedNotification(alarmEvent.eventTitle)
             resolveAndAdvance(alarmEvent.alarmId)
             return
@@ -472,7 +547,7 @@ class AlarmService : Service() {
         if (retryCount > profile.autoDismissMaxRetries) {
             // Max retries exceeded — dismiss completely
             AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
-            AppPrefs.removeSnoozedAlarm(applicationContext, alarmEvent.alarmId)
+            recordMissed(alarmEvent)
             showMissedNotification(alarmEvent.eventTitle)
         } else {
             // Auto-snooze — schedule and save to snoozed list

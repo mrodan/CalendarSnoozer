@@ -7,11 +7,15 @@ data class SoundProfile(
     val ringerMode: RingerMode,
     val soundEnabled: Boolean,
     val soundUri: String?,
-    // F.10 — sound playback shaping.
+    // F.10 / UI.21 — sound playback shaping.
     val alarmVolumePercent: Int,      // 1..100; overrides the phone's alarm volume
+    val soundDelaySeconds: Int,       // 0 = start with the alarm
     val fadeInSeconds: Int,           // 0 = start at full volume
     val soundStopsAfterSeconds: Int,  // 0 = keep sounding until the alarm resolves
     val vibrationEnabled: Boolean,
+    // UI.22 — the vibration equivalents of the two sound timings above.
+    val vibrationDelaySeconds: Int,      // 0 = start with the alarm
+    val vibrationStopsAfterSeconds: Int, // 0 = keep buzzing until the alarm resolves
     // F.7 — the waveform is described by these five values instead of a raw
     // comma-separated pattern. buildVibrationWaveform() turns them into the
     // LongArray the vibrator wants.
