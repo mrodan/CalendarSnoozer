@@ -87,7 +87,11 @@ fun HomeScreen() {
     OnResumeRefresh { refreshKey++ }
 
     var managing by remember { mutableStateOf<SnoozedAlarmRecord?>(null) }
+    // F.15 — the Manage sheet is shared, so a missed alarm is handed to it as a
+    // record plus this flag rather than as a second sheet.
+    var managingIsMissed by remember { mutableStateOf(false) }
     val alarms = remember(refreshKey) { AppPrefs.getAllSnoozedAlarms(context) }
+    val missedAlarms = remember(refreshKey) { AppPrefs.getAllMissedAlarms(context) }
 
     val notificationAccess = remember(refreshKey) { hasNotificationAccess(context) }
     val overlay = remember(refreshKey) { Settings.canDrawOverlays(context) }
@@ -118,7 +122,32 @@ fun HomeScreen() {
     ) {
         // ---- Section 1: Snoozed Alarms (UI.4) ----
         SectionCard(title = "Snoozed Alarms") {
-            SnoozedAlarmsSection(alarms = alarms, onManage = { managing = it })
+            SnoozedAlarmsSection(
+                alarms = alarms,
+                onManage = { managing = it; managingIsMissed = false }
+            )
+        }
+
+        Spacer(Modifier.height(Spacing.xl))
+
+        // ---- Section 2: Missed Alarms (F.15) ----
+        SectionCard(title = "Missed Alarms") {
+            MissedAlarmsSection(
+                alarms = missedAlarms,
+                onManage = { missed ->
+                    // A missed alarm has no firing time; the sheet shows the
+                    // event's own time instead, so seed scheduledTimeMs with it.
+                    managing = SnoozedAlarmRecord(
+                        alarmId = missed.alarmId,
+                        eventTitle = missed.eventTitle,
+                        eventText = missed.eventText,
+                        eventId = missed.eventId,
+                        eventTimeMs = missed.eventTimeMs,
+                        scheduledTimeMs = missed.eventTimeMs
+                    )
+                    managingIsMissed = true
+                }
+            )
         }
 
         Spacer(Modifier.height(Spacing.xl))
@@ -288,6 +317,7 @@ fun HomeScreen() {
         ) {
             ManageSnoozeSheet(
                 record = record,
+                isMissed = managingIsMissed,
                 onDone = { managing = null; refreshKey++ }
             )
         }

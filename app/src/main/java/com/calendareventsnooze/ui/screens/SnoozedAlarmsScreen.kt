@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
+import com.calendareventsnooze.model.MissedAlarmRecord
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.scheduler.AlarmScheduler
@@ -104,12 +105,70 @@ fun SnoozedAlarmsSection(
 }
 
 /**
+ * F.15 — the missed-alarm list. Same shape as the snoozed one above, but the
+ * second line is the **event's own** day and time rather than a firing time: a
+ * missed alarm has no future.
+ */
+@Composable
+fun MissedAlarmsSection(
+    alarms: List<MissedAlarmRecord>,
+    onManage: (MissedAlarmRecord) -> Unit
+) {
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+    if (alarms.isEmpty()) {
+        Text(
+            "No missed alarms",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = Spacing.md)
+        )
+        return
+    }
+
+    alarms.forEachIndexed { index, record ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    record.eventTitle,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    formatScheduledTime(record.eventTimeMs),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.size(Spacing.md))
+            FilledTonalButton(onClick = { onManage(record) }) {
+                Text("Manage", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+        if (index != alarms.lastIndex) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
+    }
+}
+
+/**
  * M3.1 — the contents of the Manage modal bottom sheet. The sheet itself (and
  * its dismissal) is owned by HomeScreen; this is only the body.
  */
 @Composable
 fun ManageSnoozeSheet(
     record: SnoozedAlarmRecord,
+    // F.15 — the same sheet serves the Missed list. The difference is what the
+    // destructive button means: cancelling a live snooze, versus clearing an
+    // entry for an alarm that is already over.
+    isMissed: Boolean = false,
     onDone: () -> Unit
 ) {
     val context = LocalContext.current
@@ -131,6 +190,8 @@ fun ManageSnoozeSheet(
         AlarmScheduler.cancelAlarm(context, record.alarmId)
         AlarmScheduler.scheduleAt(context, event, newTimeMs)
         AppPrefs.saveSnoozedAlarm(context, record.copy(scheduledTimeMs = newTimeMs))
+        // Re-arming a missed alarm promotes it back to the Snoozed list.
+        if (isMissed) AppPrefs.removeMissedAlarm(context, record.alarmId)
         onDone()
     }
 
@@ -153,11 +214,14 @@ fun ManageSnoozeSheet(
         Spacer(Modifier.height(Spacing.md))
         Surface(
             shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            color = if (isMissed) MaterialTheme.colorScheme.errorContainer
+                    else MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = if (isMissed) MaterialTheme.colorScheme.onErrorContainer
+                           else MaterialTheme.colorScheme.onSecondaryContainer
         ) {
             Text(
-                "Snoozed until ${formatScheduledTime(record.scheduledTimeMs)}",
+                if (isMissed) "Missed — event was ${formatScheduledTime(record.eventTimeMs)}"
+                else "Snoozed until ${formatScheduledTime(record.scheduledTimeMs)}",
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm)
             )
@@ -165,7 +229,7 @@ fun ManageSnoozeSheet(
 
         Spacer(Modifier.height(Spacing.xl))
         Text(
-            "Snooze again",
+            if (isMissed) "Snooze it now" else "Snooze again",
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -221,7 +285,12 @@ fun ManageSnoozeSheet(
                 containerColor = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer
             )
-        ) { Text("CANCEL SNOOZE", style = MaterialTheme.typography.labelLarge) }
+        ) {
+            Text(
+                if (isMissed) "REMOVE FROM LIST" else "CANCEL SNOOZE",
+                style = MaterialTheme.typography.labelLarge
+            )
+        }
 
         // F.13 — purely a shortcut to the event. It deliberately leaves the
         // snooze alone: the alarm stays in the Snoozed Alarms list and will
@@ -280,15 +349,24 @@ fun ManageSnoozeSheet(
     if (showCancelConfirm) {
         AlertDialog(
             onDismissRequest = { showCancelConfirm = false },
-            title = { Text("Cancel snooze") },
-            text = { Text("Cancel this alarm? The event will not remind you again.") },
+            title = { Text(if (isMissed) "Remove from list" else "Cancel snooze") },
+            text = {
+                Text(
+                    if (isMissed) "Remove this missed alarm? The event itself is untouched."
+                    else "Cancel this alarm? The event will not remind you again."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     showCancelConfirm = false
-                    AlarmScheduler.cancelAlarm(context, record.alarmId)
-                    AppPrefs.removeSnoozedAlarm(context, record.alarmId)
+                    if (isMissed) {
+                        AppPrefs.removeMissedAlarm(context, record.alarmId)
+                    } else {
+                        AlarmScheduler.cancelAlarm(context, record.alarmId)
+                        AppPrefs.removeSnoozedAlarm(context, record.alarmId)
+                    }
                     onDone()
-                }) { Text("Yes, cancel") }
+                }) { Text(if (isMissed) "Yes, remove" else "Yes, cancel") }
             },
             dismissButton = {
                 TextButton(onClick = { showCancelConfirm = false }) { Text("Keep") }
