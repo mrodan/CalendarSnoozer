@@ -59,12 +59,18 @@ AlarmScheduler → AlarmManager → AlarmReceiver (fires a snoozed alarm)
 AppPrefs (SharedPreferences + Gson) — all persistence
 ```
 
-- **MainActivity** hosts three tabs: Home / Snooze Buttons / Sound & Vibration.
-  Snoozed Alarms lives *inside* Home (UI.4), not as its own tab, and its Manage
-  view is a `ModalBottomSheet` owned by `HomeScreen` (M3.2).
-- A `HorizontalPager` drives both the tab row and the swipe gesture, so the two
-  can't disagree. Sound & Vibration nests a second pager for its sound modes:
-  swiping there moves sub-tabs, and the primary tab row is how you leave.
+- **MainActivity** hosts four destinations in a bottom `NavigationBar`:
+  Home / Alarm Screen / Sound & Vibration / Settings. Home is the two alarm
+  lists and nothing else; the Manage view is a `ModalBottomSheet` owned by
+  `HomeScreen` (M3.2). Permissions lives on Settings, and the test tools are a
+  floating cluster in the Scaffold rather than a card on any one screen.
+- A `HorizontalPager` drives both the navigation bar and the swipe gesture, so
+  the two can't disagree. Sound & Vibration nests a second pager for its sound
+  modes: swiping there moves sub-tabs, and the navigation bar is how you leave.
+- **Permissions are read in one place.** `readPermissions()` in
+  `SettingsScreen.kt` returns the whole `PermissionsStatus`, and both the nav
+  bar's badge and the Permissions card render from it. Adding a permission means
+  adding it there, or the badge count and the card silently disagree.
 - **AlarmActivity** is a separate `singleInstance` activity for the takeover.
 - Opening the real calendar event lives in `util/CalendarLauncher.kt`, shared by
   the takeover and the Manage sheet (F.12). Traps 3 and 4 both live in there —
