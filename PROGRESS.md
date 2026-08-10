@@ -206,6 +206,14 @@ Verified directly on the device, not an emulator.
 - The phone dropped off USB mid-round, so this was verified on the emulator first and re-verified on the Pixel afterwards — which is how the back-press defect surfaced, since it needs the four-destination distance to be reproducible.
 - versionCode 11 / versionName 2.0.
 
+## Feedback round 19 — verified on the Pixel 10a / Android 17
+- [x] UI.30 Permissions now has the same shape as the two cards under it: a heading band reading "Permissions" with the status icon beside it, and a body whose first row says either "All permissions are granted" or "N permissions pending" — the pending wording in the error colour — with the expand/collapse chevron at the right. The five rows appear under a rule when expanded. `CollapsibleCard` had no callers left afterwards and was deleted rather than kept as dead code.
+- [x] UI.31 Expanding the Test cluster now dims the whole screen behind it, bars included, and a tap anywhere on the dimmed area closes it — the same behaviour as the Customize your Buzz dialog. The scrim is `colorScheme.scrim` at 32%, M3's modal value, and sits above the entire Scaffold but below the cluster, so only the four buttons stay lit. `indication = null` stops a tap flashing a ripple across the whole screen.
+- The cluster had to leave the Scaffold's `floatingActionButton` slot to sit above the scrim, so it now positions itself — but against the bottom padding the Scaffold reports rather than an assumed bar height, because the bar grows when "Sound & Vibration" wraps to two lines.
+- [x] UI.32 "[PENDING]" became "[Coming soon]" at 75% of the heading size, carried by a new `titleSuffix` on `SectionCard` rather than baked into the title string.
+- Verified on the phone: both card shapes, the scrim dimming everything but the buttons, a tap on the scrim closing it, and a cluster action still firing through it. The "N permissions pending" wording was checked on the emulator, since seeing it on the phone would have meant revoking one of its permissions.
+- versionCode 12 / versionName 2.1.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

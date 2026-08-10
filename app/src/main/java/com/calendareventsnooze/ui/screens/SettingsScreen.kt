@@ -11,6 +11,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,9 +27,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,7 +54,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.calendareventsnooze.ui.components.CollapsibleCard
 import com.calendareventsnooze.ui.components.OnResumeRefresh
 import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
@@ -105,79 +109,114 @@ fun SettingsScreen() {
             .verticalScroll(scrollState)
             .padding(Spacing.lg)
     ) {
-        CollapsibleCard(
+        // UI.30 — the same shape as the two cards below it: heading band with
+        // the status icon beside the title, and a body whose first row
+        // summarises what the section contains and doubles as the expander.
+        SectionCard(
             title = "Permissions",
-            expanded = permissionsExpanded,
-            onToggle = { permissionsExpanded = !permissionsExpanded },
             headerExtra = {
                 Spacer(Modifier.size(Spacing.sm))
                 PermissionsBadge(status)
             }
         ) {
-            PermissionRow(
-                name = "Notification Access",
-                description = "Allows intercepting calendar notifications",
-                granted = status.notificationAccess
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { permissionsExpanded = !permissionsExpanded },
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                context.startActivity(
-                    Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                Text(
+                    when {
+                        status.allGranted -> "All permissions are granted"
+                        status.pendingCount == 1 -> "1 permission pending"
+                        else -> "${status.pendingCount} permissions pending"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (status.allGranted) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    if (permissionsExpanded) Icons.Filled.KeyboardArrowUp
+                    else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = if (permissionsExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            PermissionRow(
-                name = "Display over other apps",
-                description = "Required to show the alarm over the lock screen",
-                granted = status.overlay
-            ) {
-                context.startActivity(
-                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:${context.packageName}"))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
-            PermissionRow(
-                name = "Schedule Exact Alarms",
-                description = "Required for precise snooze timing",
-                granted = status.exactAlarm
-            ) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    context.startActivity(
-                        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                            Uri.parse("package:${context.packageName}"))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+
+            AnimatedVisibility(visible = permissionsExpanded) {
+                Column {
+                    Spacer(Modifier.height(Spacing.sm))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    PermissionRow(
+                        name = "Notification Access",
+                        description = "Allows intercepting calendar notifications",
+                        granted = status.notificationAccess
+                    ) {
+                        context.startActivity(
+                            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                    PermissionRow(
+                        name = "Display over other apps",
+                        description = "Required to show the alarm over the lock screen",
+                        granted = status.overlay
+                    ) {
+                        context.startActivity(
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                    PermissionRow(
+                        name = "Schedule Exact Alarms",
+                        description = "Required for precise snooze timing",
+                        granted = status.exactAlarm
+                    ) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            context.startActivity(
+                                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                    Uri.parse("package:${context.packageName}"))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                    }
+                    PermissionRow(
+                        name = "Read Calendar",
+                        description = "Lets the app open the correct calendar event",
+                        granted = status.readCalendar
+                    ) {
+                        calendarPermLauncher.launch(Manifest.permission.READ_CALENDAR)
+                    }
+                    // Android 14+ — revocable, and without it the takeover
+                    // silently degrades to an ordinary heads-up notification.
+                    PermissionRow(
+                        name = "Full-screen notifications",
+                        description = "Required for the alarm to take over the screen",
+                        granted = status.fullScreenIntent,
+                        isLast = true
+                    ) {
+                        openFullScreenIntentSettings(context)
+                    }
                 }
-            }
-            PermissionRow(
-                name = "Read Calendar",
-                description = "Lets the app open the correct calendar event",
-                granted = status.readCalendar
-            ) {
-                calendarPermLauncher.launch(Manifest.permission.READ_CALENDAR)
-            }
-            // Android 14+ — revocable, and without it the takeover
-            // silently degrades to an ordinary heads-up notification.
-            PermissionRow(
-                name = "Full-screen notifications",
-                description = "Required for the alarm to take over the screen",
-                granted = status.fullScreenIntent,
-                isLast = true
-            ) {
-                openFullScreenIntentSettings(context)
             }
         }
 
         Spacer(Modifier.height(Spacing.lg))
-        PendingCard("Silent Hours/Days [PENDING]")
+        PendingCard("Silent Hours/Days")
 
         Spacer(Modifier.height(Spacing.lg))
-        PendingCard("Ignore These Calendars [PENDING]")
+        PendingCard("Ignore These Calendars")
 
         Spacer(Modifier.height(Spacing.xl))
     }
 }
 
-/** A section that exists so its place in the order is settled; no controls yet. */
+/**
+ * A section that exists so its place in the order is settled; no controls yet.
+ * UI.32 — the marker rides in the heading at 75% of its size.
+ */
 @Composable
 private fun PendingCard(title: String) {
-    SectionCard(title) {
+    SectionCard(title, titleSuffix = "[Coming soon]") {
         Text(
             "Not built yet.",
             style = MaterialTheme.typography.bodyMedium,

@@ -11,7 +11,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,6 +49,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -200,6 +205,13 @@ private fun MainScreen(openHomeRequest: Int) {
         snapshotFlow { pagerState.currentPage }.collect { selectedTab = it }
     }
 
+    // UI.31 — the Scaffold reports how much room its bottom bar takes so the
+    // cluster, which now lives above the Scaffold rather than in its FAB slot,
+    // still clears the navigation bar. Read rather than assumed, because the
+    // bar grows when a label wraps to two lines.
+    var bottomBarPadding by remember { mutableStateOf(0.dp) }
+
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -261,25 +273,8 @@ private fun MainScreen(openHomeRequest: Int) {
                 }
             }
         },
-        floatingActionButton = {
-            TestCluster(
-                expanded = testExpanded,
-                onToggle = { testExpanded = !testExpanded },
-                onTestNow = { withOverlay { TestAlarmHelper.fireTestAlarmNow(context) } },
-                onTestDelayed = {
-                    withOverlay { TestAlarmHelper.fireTestAlarmDelayed(context, 5) }
-                },
-                onForceStop = {
-                    testExpanded = false
-                    // Emergency: silence any alarm, clear notifications, then
-                    // hard-reset the app process so nothing stuck can keep
-                    // sounding.
-                    AlarmService.forceStopEverything(context)
-                    android.os.Process.killProcess(android.os.Process.myPid())
-                }
-            )
-        }
     ) { innerPadding ->
+        SideEffect { bottomBarPadding = innerPadding.calculateBottomPadding() }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -302,6 +297,43 @@ private fun MainScreen(openHomeRequest: Int) {
                 }
             }
         }
+    }
+
+    // UI.31 — expanding the cluster dims everything behind it and swallows the
+    // next tap, the way the Customize your Buzz dialog does. The scrim sits
+    // above the whole Scaffold, bars included, and below the cluster, so only
+    // the four buttons stay lit. `indication = null` keeps it from flashing a
+    // ripple across the entire screen when tapped.
+    if (testExpanded) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { testExpanded = false }
+        )
+    }
+
+    TestCluster(
+        expanded = testExpanded,
+        onToggle = { testExpanded = !testExpanded },
+        onTestNow = { withOverlay { TestAlarmHelper.fireTestAlarmNow(context) } },
+        onTestDelayed = {
+            withOverlay { TestAlarmHelper.fireTestAlarmDelayed(context, 5) }
+        },
+        onForceStop = {
+            testExpanded = false
+            // Emergency: silence any alarm, clear notifications, then hard-reset
+            // the app process so nothing stuck can keep sounding.
+            AlarmService.forceStopEverything(context)
+            android.os.Process.killProcess(android.os.Process.myPid())
+        },
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(end = Spacing.lg, bottom = bottomBarPadding + Spacing.lg)
+    )
     }
 
     if (showOverlayDialog) {
@@ -342,9 +374,11 @@ private fun TestCluster(
     onToggle: () -> Unit,
     onTestNow: () -> Unit,
     onTestDelayed: () -> Unit,
-    onForceStop: () -> Unit
+    onForceStop: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
+        modifier = modifier,
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(Spacing.sm)
     ) {

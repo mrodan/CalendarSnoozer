@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -15,6 +16,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import com.calendareventsnooze.ui.theme.Spacing
 
 /**
@@ -39,6 +43,13 @@ import com.calendareventsnooze.ui.theme.Spacing
 fun SectionCard(
     title: String,
     hint: String? = null,
+    /**
+     * UI.32 — a trailing part of the heading at 75% of its size, for the
+     * "[Coming soon]" markers on sections that are only placeholders.
+     */
+    titleSuffix: String? = null,
+    /** Runs after the heading, e.g. the Permissions status icon (UI.30). */
+    headerExtra: @Composable RowScope.() -> Unit = {},
     // ColumnScope so section contents can use Modifier.align (UI.14).
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -56,14 +67,24 @@ fun SectionCard(
                     .padding(horizontal = Spacing.lg, vertical = Spacing.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // UI.18 — 25% larger than the M3 titleMedium these used to be.
+                val titleStyle = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = MaterialTheme.typography.titleMedium.fontSize * 1.25f
+                )
                 Text(
-                    title,
-                    // UI.18 — 25% larger than the M3 titleMedium these used to be.
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = MaterialTheme.typography.titleMedium.fontSize * 1.25f
-                    ),
+                    buildAnnotatedString {
+                        append(title)
+                        if (titleSuffix != null) {
+                            append(" ")
+                            withStyle(SpanStyle(fontSize = titleStyle.fontSize * 0.75f)) {
+                                append(titleSuffix)
+                            }
+                        }
+                    },
+                    style = titleStyle,
                     color = MaterialTheme.colorScheme.primary
                 )
+                headerExtra()
                 if (hint != null) {
                     Spacer(Modifier.size(Spacing.sm))
                     Text(
