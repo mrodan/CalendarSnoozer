@@ -394,7 +394,8 @@ private fun TestCluster(
                     content = MaterialTheme.colorScheme.onErrorContainer
                 ) { StopWithCrossIcon(MaterialTheme.colorScheme.onErrorContainer) }
                 ClusterAction(
-                    label = "Test Alarm +5",
+                    // The double apostrophe is the seconds mark.
+                    label = "Test Alarm +5''",
                     onClick = onTestDelayed,
                     container = MaterialTheme.colorScheme.secondaryContainer,
                     content = MaterialTheme.colorScheme.onSecondaryContainer
