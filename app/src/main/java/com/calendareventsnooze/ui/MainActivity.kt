@@ -182,7 +182,12 @@ private fun MainScreen(openHomeRequest: Int) {
     // UI.28 — back goes to Home first, and only closes the app from Home.
     // Disabled on Home so the system default (finish the activity) applies
     // rather than this swallowing the gesture.
-    BackHandler(enabled = pagerState.currentPage != 0) {
+    //
+    // Gated on targetPage, not currentPage: pressing back twice in quick
+    // succession used to eat the second press, because the scroll to Home had
+    // not settled yet and the handler was still armed. targetPage is already 0
+    // the moment that scroll starts.
+    BackHandler(enabled = pagerState.targetPage != 0) {
         scope.launch { pagerState.animateScrollToPage(0) }
     }
 

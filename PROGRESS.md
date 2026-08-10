@@ -193,7 +193,7 @@ Verified directly on the device, not an emulator.
 - **Two defects the phone caught, both fixed.** The auto-dismiss countdown was painted with the `danger` *container* colour, which is pale pink — legible on the dark ground, all but invisible on the light one; it now has its own `dangerText` role. And routing the "Also Open Calendar Event" row through the palette had quietly restyled it away from the colours UI.17 asked for, so `calendar` is pinned to the same value in both palettes.
 - versionCode 10 / versionName 1.9.
 
-## Feedback round 18 — verified on the API 34 emulator; **phone install still outstanding**
+## Feedback round 18 — verified on the Pixel 10a / Android 17
 - [x] **Bottom navigation.** The top tab row became a `NavigationBar` with four icon-and-label destinations: Home, Alarm Screen, Sound & Vibration, Settings. The pager still backs it, so swiping between destinations works exactly as before, and UI.28's back behaviour is unchanged (verified: back from Sound & Vibration → Home, back again closes the app).
 - [x] **Settings.** A new fourth destination. Permissions moved there at the top, followed by "Silent Hours/Days [PENDING]" and "Ignore These Calendars [PENDING]" as headed but empty cards.
 - [x] The badge is a **count of what is outstanding**, in the error colour, on the Settings icon *and* beside the Permissions header; once everything is granted both become the check circle and the nav badge disappears. Verified both states on the emulator by granting the missing three and reopening.
@@ -202,6 +202,8 @@ Verified directly on the device, not an emulator.
 - **Home lost its Test Alarm card and its Permissions card**, which is what those two changes imply — leaving either behind would have meant two ways to do the same thing. Home is now purely the two alarm lists.
 - The cluster lives in the `Scaffold`, so it floats over **every** destination rather than only Home. Force Stop in particular is worth reaching without navigating first; say the word if it should be Home-only.
 - Firing an alarm from the cluster was verified end to end on the emulator, including the overlay-permission guard that moved with the buttons.
+- [x] **UI.28 fix found on the phone.** Pressing back twice quickly from a far destination ate the second press: the scroll to Home had not settled, so `currentPage` was still non-zero and the handler was still armed. It now gates on `pagerState.targetPage`, which is 0 the moment that scroll starts. Two rapid backs from Settings now reach Home and then close the app; a single back still lands on Home rather than closing.
+- The phone dropped off USB mid-round, so this was verified on the emulator first and re-verified on the Pixel afterwards — which is how the back-press defect surfaced, since it needs the four-destination distance to be reproducible.
 - versionCode 11 / versionName 2.0.
 
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
