@@ -203,6 +203,14 @@ takes over the screen — it becomes an ordinary heads-up notification with no
 error anywhere. It is checked in the Permissions card for exactly that reason;
 don't drop it from `allGranted`.
 
+**Sideloaded builds keep it; Play builds may not.** Android 14+ grants this
+permission to *every* app at install — it is the **Google Play Store** that then
+revokes it for apps whose core function isn't calling or alarms. So a sideloaded
+APK keeps it (which is why it reads granted on the Pixel), and there is no
+manifest attribute that changes this. Publishing on Play would require the
+full-screen-intent declaration in the Play Console; `android:appCategory` is
+about data-usage grouping and does nothing here. Don't "fix" this in code.
+
 **13. Don't set `statusBarColor` / `navigationBarColor`.**
 Both are deprecated and **ignored from Android 15 onward** for targetSdk 35.
 The app calls `enableEdgeToEdge()` and lets the M3 top app bar paint the
@@ -255,6 +263,25 @@ does not remove the record. Read the task's `intent=` flags instead:
 `0x00800000` is `FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS`, and `autoRemoveRecents=true`
 appears on the line below. What must be true *after* the alarm is resolved is
 that no task with `baseIntent … AlarmActivity` remains at all.
+
+**19. Watching a mail app turns every email into a 3am alarm.**
+`CalendarApps` splits its registry in two on purpose. `DEDICATED` is calendar
+apps whose only notifications are reminders — safe to watch by default.
+`MIXED_USE` (Gmail, Outlook, K-9, Any.do) is offered in the Settings picker but
+**never** on by default, because the listener intercepts *every* notification
+from a watched package. This was caught on the phone: the first cut defaulted to
+"all known calendar apps installed", which silently included Gmail.
+
+`CalendarApps.KNOWN` and the manifest's `<queries>` block must stay in step — a
+package missing from `<queries>` is invisible to `getLaunchIntentForPackage` on
+Android 11+, so it can be neither offered in the picker nor opened for an event.
+
+**20. Optional permissions must stay out of `pendingCount`.**
+`PermissionsStatus.batteryUnrestricted` is recommended, not required, so it is
+deliberately excluded from `pendingCount` and therefore from both the nav-bar
+badge and "All permissions are granted". Adding a genuinely required permission
+means adding it to the `pendingCount` list too; adding an optional one means
+*not* doing that.
 
 **18. `OutlinedTextField` cannot simply be made shorter.**
 Its decoration box reserves a fixed slice for the floating label and centres the

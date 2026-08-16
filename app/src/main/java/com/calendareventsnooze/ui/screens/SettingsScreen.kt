@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,6 +37,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -54,9 +56,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.ui.components.OnResumeRefresh
 import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
+import com.calendareventsnooze.util.CalendarApps
 import kotlin.math.sqrt
 
 /**
@@ -68,7 +72,14 @@ data class PermissionsStatus(
     val overlay: Boolean = false,
     val exactAlarm: Boolean = false,
     val readCalendar: Boolean = false,
-    val fullScreenIntent: Boolean = false
+    val fullScreenIntent: Boolean = false,
+    /**
+     * Round 20 — recommended, not required: the app works without it, it just
+     * becomes less reliable on phones that sleep background apps. Deliberately
+     * **excluded** from [pendingCount], so leaving it off never puts a red badge
+     * on the Settings tab or reports the app as misconfigured.
+     */
+    val batteryUnrestricted: Boolean = false
 ) {
     val pendingCount: Int
         get() = listOf(
@@ -84,8 +95,38 @@ fun readPermissions(context: Context) = PermissionsStatus(
     exactAlarm = canScheduleExactAlarms(context),
     readCalendar = ContextCompat.checkSelfPermission(
         context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED,
-    fullScreenIntent = canUseFullScreenIntent(context)
+    fullScreenIntent = canUseFullScreenIntent(context),
+    batteryUnrestricted = isBatteryUnrestricted(context)
 )
+
+/**
+ * True when Android has been told to stop putting the app to sleep. Optional,
+ * but it is the single biggest reliability factor on OEMs that kill background
+ * work — without it the notification listener and the alarm service can both be
+ * stopped between alarms.
+ */
+private fun isBatteryUnrestricted(context: Context): Boolean = runCatching {
+    context.getSystemService(PowerManager::class.java)
+        .isIgnoringBatteryOptimizations(context.packageName)
+}.getOrDefault(false)
+
+/**
+ * Opens the system's own confirm dialog where possible; some OEMs remove that
+ * activity, so fall back to the full battery-optimisation list.
+ */
+private fun openBatterySettings(context: Context) {
+    val direct = Intent(
+        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        Uri.parse("package:${context.packageName}")
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    if (runCatching { context.startActivity(direct); true }.getOrDefault(false)) return
+    runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+}
 
 @Composable
 fun SettingsScreen() {
@@ -191,14 +232,27 @@ fun SettingsScreen() {
                     PermissionRow(
                         name = "Full-screen notifications",
                         description = "Required for the alarm to take over the screen",
-                        granted = status.fullScreenIntent,
-                        isLast = true
+                        granted = status.fullScreenIntent
                     ) {
                         openFullScreenIntentSettings(context)
+                    }
+                    // Optional — see PermissionsStatus.batteryUnrestricted. It
+                    // never counts towards the badge or the pending total.
+                    PermissionRow(
+                        name = "Unrestricted background battery usage (OPTIONAL)",
+                        description = "Recommended: stops Android sleeping the app " +
+                            "between alarms",
+                        granted = status.batteryUnrestricted,
+                        isLast = true
+                    ) {
+                        openBatterySettings(context)
                     }
                 }
             }
         }
+
+        Spacer(Modifier.height(Spacing.lg))
+        CalendarAppsCard(refreshKey) { refreshKey++ }
 
         Spacer(Modifier.height(Spacing.lg))
         PendingCard("Silent Hours/Days")
@@ -207,6 +261,142 @@ fun SettingsScreen() {
         PendingCard("Ignore These Calendars")
 
         Spacer(Modifier.height(Spacing.xl))
+    }
+}
+
+/**
+ * Round 20 — which apps' reminders the takeover reacts to.
+ *
+ * The watched set was hardcoded to three packages and had no UI at all, so on a
+ * phone whose calendar was not one of them the app silently did nothing while
+ * reporting every permission granted. The list offers every known calendar app
+ * that is installed, plus anything the system reports as a calendar, and it
+ * warns rather than silently doing nothing when the selection is empty.
+ */
+@Composable
+private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
+    val context = LocalContext.current
+    val installed = remember(refreshKey) { CalendarApps.installedKnown(context) }
+    var selected by remember(refreshKey) {
+        mutableStateOf(AppPrefs.getCalendarPackages(context))
+    }
+    var expanded by remember { mutableStateOf(false) }
+
+    // Packages the user chose that are no longer installed stay selected but are
+    // shown separately, so removing an app does not silently drop the setting.
+    val missing = selected - installed.map { it.packageName }.toSet()
+
+    SectionCard("Calendar Apps") {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                when {
+                    selected.isEmpty() -> "No calendar app selected"
+                    selected.size == 1 -> "1 calendar app watched"
+                    else -> "${selected.size} calendar apps watched"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (selected.isEmpty()) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.weight(1f))
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column {
+                Spacer(Modifier.height(Spacing.sm))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(Spacing.md))
+                Text(
+                    "Reminders from the apps you tick here are replaced by the " +
+                        "full-screen alarm. Everything else is left alone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(Spacing.sm))
+
+                if (installed.isEmpty() && missing.isEmpty()) {
+                    Text(
+                        "No calendar app found on this phone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(vertical = Spacing.md)
+                    )
+                }
+
+                installed.forEach { entry ->
+                    CalendarAppRow(
+                        label = entry.label,
+                        packageName = entry.packageName,
+                        checked = entry.packageName in selected,
+                        installed = true,
+                        mixedUse = !CalendarApps.isDedicatedCalendar(entry.packageName)
+                    ) { checked ->
+                        selected = if (checked) selected + entry.packageName
+                                   else selected - entry.packageName
+                        AppPrefs.saveCalendarPackages(context, selected)
+                        onChanged()
+                    }
+                }
+
+                missing.forEach { pkg ->
+                    CalendarAppRow(
+                        label = CalendarApps.labelFor(context, pkg),
+                        packageName = pkg,
+                        checked = true,
+                        installed = false
+                    ) { checked ->
+                        selected = if (checked) selected + pkg else selected - pkg
+                        AppPrefs.saveCalendarPackages(context, selected)
+                        onChanged()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarAppRow(
+    label: String,
+    packageName: String,
+    checked: Boolean,
+    installed: Boolean,
+    mixedUse: Boolean = false,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                when {
+                    !installed -> "$packageName · not installed"
+                    // The warning that stops someone turning every incoming
+                    // email into a 3am full-screen alarm.
+                    mixedUse -> "Also posts non-calendar notifications"
+                    else -> packageName
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (mixedUse && installed) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.size(Spacing.sm))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

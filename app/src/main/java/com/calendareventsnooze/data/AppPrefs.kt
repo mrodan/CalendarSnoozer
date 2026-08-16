@@ -10,6 +10,7 @@ import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.model.VibrationPreset
+import com.calendareventsnooze.util.CalendarApps
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -372,14 +373,15 @@ object AppPrefs {
     // Calendar packages
     // ---------------------------------------------------------------------
 
-    private val defaultCalendarPackages = setOf(
-        "com.google.android.calendar",
-        "com.android.calendar",
-        "com.samsung.android.calendar"
-    )
-
+    /**
+     * Round 20 — the watched set now defaults to whichever known calendar apps
+     * are actually on the phone, rather than a hardcoded three. On a Xiaomi or a
+     * Huawei the old default matched nothing, so no notification was ever
+     * intercepted while every permission still reported green.
+     */
     fun getCalendarPackages(ctx: Context): Set<String> =
-        prefs(ctx).getStringSet(KEY_CALENDAR_PACKAGES, null) ?: defaultCalendarPackages
+        prefs(ctx).getStringSet(KEY_CALENDAR_PACKAGES, null)
+            ?: CalendarApps.defaultsFor(ctx)
 
     fun saveCalendarPackages(ctx: Context, packages: Set<String>) {
         prefs(ctx).edit().putStringSet(KEY_CALENDAR_PACKAGES, packages).apply()

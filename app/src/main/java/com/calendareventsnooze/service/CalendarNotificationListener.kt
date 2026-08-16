@@ -1,5 +1,6 @@
 package com.calendareventsnooze.service
 
+import android.content.ComponentName
 import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -9,6 +10,24 @@ import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.util.putAlarmEvent
 
 class CalendarNotificationListener : NotificationListenerService() {
+
+    /**
+     * Round 20 — Android unbinds notification listeners under memory pressure,
+     * and OEMs that kill background processes aggressively (Xiaomi, Oppo, vivo,
+     * OnePlus, Huawei, and Samsung's "Sleeping apps") do it routinely. Without
+     * this the service stays unbound until the phone reboots or the user toggles
+     * the permission by hand — the app looks alive, every permission reads
+     * granted, and no calendar notification is ever seen again.
+     *
+     * `requestRebind` asks the system to bind us again; it is the documented
+     * remedy and is safe to call even if the disconnect was deliberate.
+     */
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        runCatching {
+            requestRebind(ComponentName(this, CalendarNotificationListener::class.java))
+        }
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName ?: return
