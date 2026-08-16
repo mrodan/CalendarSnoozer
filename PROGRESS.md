@@ -246,6 +246,15 @@ Prompted by wanting to share the APK with other people, on phones that are not P
 - Also confirmed live: "Last reminder seen: Calendar · Today at 6:29 PM" — a genuine calendar reminder, not a test alarm.
 - versionCode 15 / versionName 2.4.
 
+## Round 23
+- [x] **"Silent Hours & Days"**, split into **Weekdays** and **Weekends**, each owning its own day chips *and* its own from/to window. One window could not express "10pm on work nights, 1am at the weekend", which is the schedule most people actually keep. The weekday chips are Mon–Fri and the weekend chips Sat–Sun, both sized off the five-chip row so they line up.
+- The wrap-past-midnight rule is unchanged and now matters more: a window is matched against the day it **started**, so the weekday window legitimately silences a Saturday morning after a Friday night.
+- [x] **The OFF switch outlines the whole control in red**, not just the selected half — each segment draws its own border, so the inactive one needs `inactiveBorderColor` telling too. A border that changed on one segment read as decoration on that button rather than a state the app is in.
+- [x] OFF text is now "Calendar notifications will show as usual".
+- Verified on the phone: the full red outline and the new text, and the renamed card showing the weekday summary.
+- **NOT verified — the split's persistence.** After the change the phone's `silent_hours` pref still held the *round 22* shape (`days`/`startMinute`/`endMinute`) rather than the new `weekdayDays`/`weekendDays` keys, and the card showed no Weekends line, which is what reading that shape would produce. `saveSilentHours` only writes the new mirror, so by inspection this should not happen; the phone was unplugged before it could be traced. **Next session: open Silent Hours & Days, change one day chip, then read `silent_hours` out of `ces_prefs.xml`.** If it still has `days`, the migration write path is broken and existing settings are being read but never rewritten.
+- versionCode 16 / versionName 2.5.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

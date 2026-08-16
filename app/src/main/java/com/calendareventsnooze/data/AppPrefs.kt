@@ -8,6 +8,7 @@ import com.calendareventsnooze.model.MissedAlarmRecord
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.model.SilentHours
+import com.calendareventsnooze.model.SilentWindow
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.model.VibrationPreset
@@ -274,6 +275,16 @@ object AppPrefs {
      */
     private data class SilentHoursJson(
         val enabled: Boolean?,
+        // Round 23 — the two windows. Null on a profile written before the
+        // split, which is what the legacy fields below are still read for.
+        val weekdayDays: List<Int>?,
+        val weekdayStart: Int?,
+        val weekdayEnd: Int?,
+        val weekendDays: List<Int>?,
+        val weekendStart: Int?,
+        val weekendEnd: Int?,
+        // Round 22's single window. Kept so an existing setting migrates into
+        // the split rather than silently reverting to the defaults.
         val days: List<Int>?,
         val startMinute: Int?,
         val endMinute: Int?
@@ -284,12 +295,33 @@ object AppPrefs {
         return try {
             val stored = gson.fromJson(json, SilentHoursJson::class.java) ?: return SilentHours()
             val default = SilentHours()
+
+            // A round 22 setting had one set of hours for the whole week; split
+            // it across both groups so the times the user chose survive.
+            val legacyDays = stored.days?.toSet()
+            val legacyStart = stored.startMinute?.coerceIn(0, 24 * 60 - 1)
+            val legacyEnd = stored.endMinute?.coerceIn(0, 24 * 60 - 1)
+
             SilentHours(
                 enabled = stored.enabled ?: default.enabled,
-                days = stored.days?.toSet()?.ifEmpty { null } ?: default.days,
-                startMinute = stored.startMinute?.coerceIn(0, 24 * 60 - 1)
-                    ?: default.startMinute,
-                endMinute = stored.endMinute?.coerceIn(0, 24 * 60 - 1) ?: default.endMinute
+                weekdays = SilentWindow(
+                    days = stored.weekdayDays?.toSet()
+                        ?: legacyDays?.intersect(SilentHours.WEEKDAYS)
+                        ?: default.weekdays.days,
+                    startMinute = stored.weekdayStart?.coerceIn(0, 24 * 60 - 1)
+                        ?: legacyStart ?: default.weekdays.startMinute,
+                    endMinute = stored.weekdayEnd?.coerceIn(0, 24 * 60 - 1)
+                        ?: legacyEnd ?: default.weekdays.endMinute
+                ),
+                weekends = SilentWindow(
+                    days = stored.weekendDays?.toSet()
+                        ?: legacyDays?.intersect(SilentHours.WEEKEND)
+                        ?: default.weekends.days,
+                    startMinute = stored.weekendStart?.coerceIn(0, 24 * 60 - 1)
+                        ?: legacyStart ?: default.weekends.startMinute,
+                    endMinute = stored.weekendEnd?.coerceIn(0, 24 * 60 - 1)
+                        ?: legacyEnd ?: default.weekends.endMinute
+                )
             )
         } catch (e: Exception) {
             SilentHours()
@@ -299,7 +331,14 @@ object AppPrefs {
     fun saveSilentHours(ctx: Context, hours: SilentHours) {
         val json = gson.toJson(
             SilentHoursJson(
-                hours.enabled, hours.days.toList(), hours.startMinute, hours.endMinute
+                enabled = hours.enabled,
+                weekdayDays = hours.weekdays.days.toList(),
+                weekdayStart = hours.weekdays.startMinute,
+                weekdayEnd = hours.weekdays.endMinute,
+                weekendDays = hours.weekends.days.toList(),
+                weekendStart = hours.weekends.startMinute,
+                weekendEnd = hours.weekends.endMinute,
+                days = null, startMinute = null, endMinute = null
             )
         )
         prefs(ctx).edit().putString(KEY_SILENT_HOURS, json).apply()

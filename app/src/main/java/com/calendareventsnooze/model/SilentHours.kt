@@ -3,61 +3,72 @@ package com.calendareventsnooze.model
 import java.util.Calendar
 
 /**
- * Round 22 — a recurring window in which calendar notifications are left alone.
+ * One recurring quiet window: a set of days and a time range.
  *
- * Deliberately narrow: this suppresses *interception*, so a reminder inside the
- * window behaves the way it did before the app was installed. It does not touch
- * alarms the user already snoozed — those were scheduled on purpose, and having
- * a snooze silently evaporate because it landed in the quiet window would be
- * the kind of surprise this app exists to prevent.
- *
- * [days] holds `java.util.Calendar` day constants (SUNDAY = 1 … SATURDAY = 7).
- * [startMinute] and [endMinute] are minutes from midnight.
+ * A range whose end precedes its start wraps past midnight, and is matched
+ * against the day it **started** — a Friday 22:00–07:00 window covers Saturday
+ * 01:00, which is what someone picking "Friday night" means. That is also why
+ * the weekday window can legitimately silence a Saturday morning.
  */
-data class SilentHours(
-    val enabled: Boolean = false,
-    val days: Set<Int> = ALL_DAYS,
-    val startMinute: Int = 22 * 60,
-    val endMinute: Int = 7 * 60
+data class SilentWindow(
+    val days: Set<Int>,
+    val startMinute: Int,
+    val endMinute: Int
 ) {
-
-    /**
-     * True when [timeMs] falls inside the window.
-     *
-     * A window that ends before it starts wraps past midnight, and the day it is
-     * matched against is the day it **started** — a 22:00–07:00 Friday window
-     * covers Saturday 01:00, which is what someone picking "Friday night" means.
-     */
-    fun isSilentAt(timeMs: Long): Boolean {
-        if (!enabled || days.isEmpty() || startMinute == endMinute) return false
-
-        val cal = Calendar.getInstance().apply { timeInMillis = timeMs }
-        val day = cal.get(Calendar.DAY_OF_WEEK)
-        val minute = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-
+    fun isSilentAt(day: Int, minuteOfDay: Int): Boolean {
+        if (days.isEmpty() || startMinute == endMinute) return false
         return if (startMinute < endMinute) {
-            day in days && minute >= startMinute && minute < endMinute
+            day in days && minuteOfDay >= startMinute && minuteOfDay < endMinute
         } else {
-            // Wrapped: either the tail of a selected day, or the small hours of
-            // the morning after one.
-            (day in days && minute >= startMinute) ||
-                (previousDay(day) in days && minute < endMinute)
+            (day in days && minuteOfDay >= startMinute) ||
+                (previousDay(day) in days && minuteOfDay < endMinute)
         }
     }
 
-    val isEveryDay: Boolean get() = days.size == ALL_DAYS.size
+    private fun previousDay(day: Int): Int =
+        if (day == Calendar.SUNDAY) Calendar.SATURDAY else day - 1
+}
+
+/**
+ * Round 23 — quiet time is now specified separately for weekdays and weekends,
+ * because those are the two schedules people actually keep. Each half owns its
+ * own days *and* its own hours, so "10pm–7am on work nights, 1am–10am at the
+ * weekend" is expressible; before, one window had to serve both.
+ *
+ * This suppresses *interception* only: a reminder arriving inside a window
+ * behaves the way it did before the app was installed. Alarms already snoozed
+ * still fire — those were scheduled deliberately, and losing one because it
+ * landed in the quiet window would be the surprise this app exists to prevent.
+ */
+data class SilentHours(
+    val enabled: Boolean = false,
+    val weekdays: SilentWindow = SilentWindow(WEEKDAYS, 22 * 60, 7 * 60),
+    val weekends: SilentWindow = SilentWindow(WEEKEND, 23 * 60, 9 * 60)
+) {
+    fun isSilentAt(timeMs: Long): Boolean {
+        if (!enabled) return false
+        val cal = Calendar.getInstance().apply { timeInMillis = timeMs }
+        val day = cal.get(Calendar.DAY_OF_WEEK)
+        val minute = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        return weekdays.isSilentAt(day, minute) || weekends.isSilentAt(day, minute)
+    }
+
+    /** True when nothing at all is selected, which reads as "never silent". */
+    val hasNoDays: Boolean get() = weekdays.days.isEmpty() && weekends.days.isEmpty()
 
     companion object {
-        val ALL_DAYS = setOf(
-            Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY,
-            Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY
+        val WEEKDAYS = setOf(
+            Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY,
+            Calendar.THURSDAY, Calendar.FRIDAY
         )
+        val WEEKEND = setOf(Calendar.SATURDAY, Calendar.SUNDAY)
 
-        /** Monday-first order, which is how the day chips read. */
-        val DISPLAY_ORDER = listOf(
-            Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY,
-            Calendar.FRIDAY, Calendar.SATURDAY, Calendar.SUNDAY
+        /** Chip order within each group. */
+        val WEEKDAY_ORDER = listOf(
+            Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY,
+            Calendar.THURSDAY, Calendar.FRIDAY
         )
+        val WEEKEND_ORDER = listOf(Calendar.SATURDAY, Calendar.SUNDAY)
 
         fun shortName(day: Int): String = when (day) {
             Calendar.MONDAY -> "Mon"
@@ -67,12 +78,6 @@ data class SilentHours(
             Calendar.FRIDAY -> "Fri"
             Calendar.SATURDAY -> "Sat"
             else -> "Sun"
-        }
-
-        private fun previousDay(day: Int): Int = if (day == Calendar.SUNDAY) {
-            Calendar.SATURDAY
-        } else {
-            day - 1
         }
     }
 }

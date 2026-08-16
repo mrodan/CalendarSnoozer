@@ -58,23 +58,29 @@ private fun SnoozerStatusCard(refreshKey: Int) {
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Round 23 — while the Snoozer is off the whole control is outlined in
+        // red, not just the selected half: a border that changed on one segment
+        // read as decoration on that button rather than as a state the app is
+        // in. Each segment draws its own border, so the inactive half needs
+        // telling too.
+        val offColors = SegmentedButtonDefaults.colors(
+            activeContainerColor = MaterialTheme.colorScheme.errorContainer,
+            activeContentColor = MaterialTheme.colorScheme.error,
+            activeBorderColor = MaterialTheme.colorScheme.error,
+            inactiveBorderColor = MaterialTheme.colorScheme.error
+        )
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             SegmentedButton(
                 selected = enabled,
                 onClick = { enabled = true; AppPrefs.setSnoozerEnabled(context, true) },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                colors = if (enabled) SegmentedButtonDefaults.colors() else offColors
             ) { Text("Snoozer is ON", style = MaterialTheme.typography.labelLarge) }
             SegmentedButton(
                 selected = !enabled,
                 onClick = { enabled = false; AppPrefs.setSnoozerEnabled(context, false) },
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                // Only the OFF half turns red, and only while it is the one
-                // selected — an unselected OFF is just a normal option.
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = MaterialTheme.colorScheme.errorContainer,
-                    activeContentColor = MaterialTheme.colorScheme.error,
-                    activeBorderColor = MaterialTheme.colorScheme.error
-                )
+                colors = if (enabled) SegmentedButtonDefaults.colors() else offColors
             ) { Text("Turn OFF Snoozer", style = MaterialTheme.typography.labelLarge) }
         }
 
@@ -82,8 +88,7 @@ private fun SnoozerStatusCard(refreshKey: Int) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(Spacing.md))
                 Text(
-                    "Calendar notifications will not activate the CalendarSnoozer " +
-                        "full-screen alarm.",
+                    "Calendar notifications will show as usual",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center

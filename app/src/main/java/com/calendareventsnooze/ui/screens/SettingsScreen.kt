@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.SilentHours
+import com.calendareventsnooze.model.SilentWindow
 import com.calendareventsnooze.ui.components.OnResumeRefresh
 import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
@@ -462,14 +463,14 @@ private fun SilentHoursCard(refreshKey: Int) {
     val context = LocalContext.current
     var hours by remember(refreshKey) { mutableStateOf(AppPrefs.getSilentHours(context)) }
     var expanded by remember { mutableStateOf(false) }
-    var picking by remember { mutableStateOf<Boolean?>(null) } // true = start, false = end
+    var picking by remember { mutableStateOf<PickTarget?>(null) }
 
     fun update(next: SilentHours) {
         hours = next
         AppPrefs.saveSilentHours(context, next)
     }
 
-    SectionCard("Silent Hours/Days") {
+    SectionCard("Silent Hours & Days") {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -478,11 +479,10 @@ private fun SilentHoursCard(refreshKey: Int) {
         ) {
             Text(
                 if (!hours.enabled) "Off — every reminder is intercepted"
-                else "${formatMinuteOfDay(context, hours.startMinute)} – " +
-                    "${formatMinuteOfDay(context, hours.endMinute)} · " +
-                    if (hours.isEveryDay) "every day"
-                    else SilentHours.DISPLAY_ORDER.filter { it in hours.days }
-                        .joinToString(", ") { SilentHours.shortName(it) },
+                else listOfNotNull(
+                    windowSummary(context, "Weekdays", hours.weekdays),
+                    windowSummary(context, "Weekends", hours.weekends)
+                ).joinToString("\n").ifEmpty { "On, but no days are selected" },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -517,66 +517,35 @@ private fun SilentHoursCard(refreshKey: Int) {
 
                 AnimatedVisibility(visible = hours.enabled) {
                     Column {
-                        Spacer(Modifier.height(Spacing.md))
-                        Text("Days", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(Spacing.sm))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
-                        ) {
-                            SilentHours.DISPLAY_ORDER.forEach { day ->
-                                val on = day in hours.days
-                                FilterChip(
-                                    selected = on,
-                                    onClick = {
-                                        val next = if (on) hours.days - day else hours.days + day
-                                        update(hours.copy(days = next))
-                                    },
-                                    label = {
-                                        Text(
-                                            SilentHours.shortName(day).take(1),
-                                            style = MaterialTheme.typography.labelMedium
-                                        )
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
+                        Spacer(Modifier.height(Spacing.lg))
+                        SilentWindowGroup(
+                            title = "Weekdays",
+                            order = SilentHours.WEEKDAY_ORDER,
+                            window = hours.weekdays,
+                            onWindowChange = { update(hours.copy(weekdays = it)) },
+                            onPickTime = { start -> picking = PickTarget(true, start) }
+                        )
 
-                        // Selecting nothing would silently mean "never silent",
+                        Spacer(Modifier.height(Spacing.lg))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Spacer(Modifier.height(Spacing.lg))
+
+                        SilentWindowGroup(
+                            title = "Weekends",
+                            order = SilentHours.WEEKEND_ORDER,
+                            window = hours.weekends,
+                            onWindowChange = { update(hours.copy(weekends = it)) },
+                            onPickTime = { start -> picking = PickTarget(false, start) }
+                        )
+
+                        // Nothing selected anywhere reads as "never silent",
                         // which looks identical to the feature being broken.
-                        AnimatedVisibility(visible = hours.days.isEmpty()) {
+                        AnimatedVisibility(visible = hours.hasNoDays) {
                             Text(
                                 "Pick at least one day, or silent hours will never apply.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(top = Spacing.sm)
-                            )
-                        }
-
-                        Spacer(Modifier.height(Spacing.lg))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.md)
-                        ) {
-                            TimeButton(
-                                label = "From",
-                                minuteOfDay = hours.startMinute,
-                                modifier = Modifier.weight(1f)
-                            ) { picking = true }
-                            TimeButton(
-                                label = "To",
-                                minuteOfDay = hours.endMinute,
-                                modifier = Modifier.weight(1f)
-                            ) { picking = false }
-                        }
-
-                        if (hours.startMinute > hours.endMinute) {
-                            Spacer(Modifier.height(Spacing.sm))
-                            Text(
-                                "This window runs past midnight into the next morning.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                modifier = Modifier.padding(top = Spacing.md)
                             )
                         }
 
@@ -594,22 +563,101 @@ private fun SilentHoursCard(refreshKey: Int) {
         }
     }
 
-    val pickingStart = picking
-    if (pickingStart != null) {
-        val current = if (pickingStart) hours.startMinute else hours.endMinute
+    val target = picking
+    if (target != null) {
+        val window = if (target.weekdays) hours.weekdays else hours.weekends
+        val current = if (target.isStart) window.startMinute else window.endMinute
         TimeOfDayDialog(
-            title = if (pickingStart) "Silent from" else "Silent until",
+            title = (if (target.weekdays) "Weekdays" else "Weekends") +
+                if (target.isStart) " — silent from" else " — silent until",
             minuteOfDay = current,
             onDismiss = { picking = null },
             onConfirm = { minute ->
+                val next = if (target.isStart) window.copy(startMinute = minute)
+                           else window.copy(endMinute = minute)
                 update(
-                    if (pickingStart) hours.copy(startMinute = minute)
-                    else hours.copy(endMinute = minute)
+                    if (target.weekdays) hours.copy(weekdays = next)
+                    else hours.copy(weekends = next)
                 )
                 picking = null
             }
         )
     }
+}
+
+/** Which of the four time fields a picker is open for. */
+private data class PickTarget(val weekdays: Boolean, val isStart: Boolean)
+
+/**
+ * Round 23 — one half of the schedule. Weekdays and weekends each own their
+ * days *and* their hours, so "10pm on work nights, 1am at the weekend" is
+ * expressible; a single window could not say that.
+ */
+@Composable
+private fun SilentWindowGroup(
+    title: String,
+    order: List<Int>,
+    window: SilentWindow,
+    onWindowChange: (SilentWindow) -> Unit,
+    onPickTime: (isStart: Boolean) -> Unit
+) {
+    Text(title, style = MaterialTheme.typography.titleSmall)
+    Spacer(Modifier.height(Spacing.sm))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+    ) {
+        order.forEach { day ->
+            val on = day in window.days
+            FilterChip(
+                selected = on,
+                onClick = {
+                    val next = if (on) window.days - day else window.days + day
+                    onWindowChange(window.copy(days = next))
+                },
+                label = {
+                    Text(
+                        SilentHours.shortName(day).take(1),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        // The weekend row is two chips wide; without this they would stretch to
+        // half the card each and stop matching the weekday row's chip size.
+        repeat(SilentHours.WEEKDAY_ORDER.size - order.size) {
+            Spacer(Modifier.weight(1f))
+        }
+    }
+
+    Spacer(Modifier.height(Spacing.md))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+    ) {
+        TimeButton("From", window.startMinute, Modifier.weight(1f)) { onPickTime(true) }
+        TimeButton("To", window.endMinute, Modifier.weight(1f)) { onPickTime(false) }
+    }
+
+    if (window.startMinute > window.endMinute) {
+        Spacer(Modifier.height(Spacing.sm))
+        Text(
+            "Runs past midnight into the next morning.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/** "Weekdays 10:00 PM – 7:00 AM · Mon, Tue, Wed", or null when no days are on. */
+private fun windowSummary(context: Context, label: String, window: SilentWindow): String? {
+    if (window.days.isEmpty()) return null
+    val days = (SilentHours.WEEKDAY_ORDER + SilentHours.WEEKEND_ORDER)
+        .filter { it in window.days }
+        .joinToString(", ") { SilentHours.shortName(it) }
+    return "$label ${formatMinuteOfDay(context, window.startMinute)} – " +
+        "${formatMinuteOfDay(context, window.endMinute)} · $days"
 }
 
 @Composable
