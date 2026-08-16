@@ -61,8 +61,6 @@
         <package android:name="com.sonyericsson.organizer" />
         <package android:name="com.motorola.calendar" />
         <package android:name="com.microsoft.office.outlook" />
-        <package android:name="com.google.android.gm" />
-        <package android:name="com.fsck.k9" />
         <package android:name="com.anydo" />
         <package android:name="com.appgenix.bizcal" />
         <package android:name="com.underwood.calendar_beta" />

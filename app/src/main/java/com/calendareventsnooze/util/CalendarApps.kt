@@ -55,14 +55,17 @@ object CalendarApps {
     /**
      * Apps that carry a calendar but post plenty of other notifications too.
      *
-     * These are offered in the picker and are **never** on by default: watching
-     * Gmail would turn every arriving email into a full-screen alarm at 3am.
-     * Ticking one is a deliberate choice, and the picker says so.
+     * These are offered in the picker and are **never** on by default: the
+     * listener intercepts *every* notification from a watched package, so
+     * ticking Outlook means its mail lands as a full-screen alarm too. Ticking
+     * one is a deliberate choice behind a confirmation.
+     *
+     * Pure mail clients are deliberately absent. Gmail was briefly listed here
+     * and should not have been: Gmail posts mail, while the reminders for
+     * "events from Gmail" are posted by Google Calendar.
      */
     private val MIXED_USE = linkedMapOf(
         "com.microsoft.office.outlook"         to "Outlook",
-        "com.google.android.gm"                to "Gmail",
-        "com.fsck.k9"                          to "K-9 Mail",
         "com.anydo"                            to "Any.do"
     )
 

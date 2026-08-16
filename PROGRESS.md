@@ -226,6 +226,16 @@ Prompted by wanting to share the APK with other people, on phones that are not P
 - **OEM skins cannot be emulated.** The Android SDK ships AOSP/Google API images only; there are no Samsung, Xiaomi, Oppo, vivo, OnePlus or Huawei system images. What was tested is Android 14 (emulator, fresh data) and Android 17 (the Pixel), plus the *behaviours* those OEMs provoke — empty/partial calendar selection, an unrecognised calendar app, and battery-optimisation state. The Android 16 AVD still will not leave `offline` on this machine, exactly as recorded in round 9.
 - versionCode 13 / versionName 2.2.
 
+## Round 21 — the app explains itself
+- [x] **Master switch on Home.** A segmented control matching Sequencing's — "Snoozer is ON" / "Turn OFF Snoozer". Off stops notifications being intercepted; it deliberately does **not** cancel alarms already snoozed, which were scheduled on purpose. The OFF half takes the error roles (container, content, border) rather than the usual selected green, with the red explanation underneath.
+- [x] **"Last reminder seen: <app> · <time>"** on Home, recorded by the listener before anything else can fail. Until now nothing on screen answered "is this working?" until an event happened to be due.
+- [x] **A warning on Home when no calendar app is selected**, because the fix for that is on a different tab.
+- [x] **Settings leads with Calendar Apps**, the setting most likely to be wrong on a non-Pixel and the one whose being wrong makes everything else pointless.
+- [x] **Enabling a mixed-use app is confirmed**, spelling out that every notification it posts — mail included — will trigger the alarm at any hour.
+- [x] **The Permissions summary tells the truth about the optional one**: "All required permissions are granted. / Optional permission is not." when the battery exemption is off, and "All permissions are granted." only when everything including it is on.
+- [x] **Gmail and K-9 Mail removed from the picker.** Gmail posts mail; reminders for "events from Gmail" are posted by Google Calendar. Listing it invited a dangerous toggle for no benefit — see the round 20 note on how it nearly shipped as a default.
+- versionCode 14 / versionName 2.3.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

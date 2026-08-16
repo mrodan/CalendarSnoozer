@@ -32,6 +32,13 @@ class CalendarNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName ?: return
         if (pkg !in AppPrefs.getCalendarPackages(applicationContext)) return
+        // Round 21 — the Home master switch. Checked after the package filter so
+        // an unrelated notification can never be mistaken for a suppressed one.
+        if (!AppPrefs.isSnoozerEnabled(applicationContext)) return
+
+        // Recorded before anything can fail, so the diagnostic line on Home
+        // still answers "did a reminder reach us?" even if the alarm misfires.
+        AppPrefs.recordInterception(applicationContext, pkg)
 
         val extras = sbn.notification.extras
         val title = extras.getString("android.title")

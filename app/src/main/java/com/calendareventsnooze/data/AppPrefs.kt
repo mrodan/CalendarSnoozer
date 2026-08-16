@@ -24,6 +24,9 @@ object AppPrefs {
     private const val KEY_AUTO_SNOOZE_PREFIX = "auto_snooze_count_"
     private const val KEY_SOUND_PROFILE_PREFIX = "sound_profile_"
     private const val KEY_ALARM_SCREEN_STYLE = "alarm_screen_style"
+    private const val KEY_SNOOZER_ENABLED = "snoozer_enabled"
+    private const val KEY_LAST_SEEN_PACKAGE = "last_seen_package"
+    private const val KEY_LAST_SEEN_AT = "last_seen_at"
 
     private val gson = Gson()
 
@@ -243,6 +246,41 @@ object AppPrefs {
             autoDismissSnoozeMinutes = DEFAULT_AUTO_SNOOZE_MINUTES,
             autoDismissMaxRetries = DEFAULT_AUTO_SNOOZE_MAX_RETRIES
         )
+    }
+
+    // ---------------------------------------------------------------------
+    // Master switch and "is this working?" diagnostics (round 21)
+    // ---------------------------------------------------------------------
+
+    /**
+     * The Home switch. Off means calendar notifications are left alone — it does
+     * **not** cancel alarms the user has already snoozed, which were scheduled
+     * deliberately and still fire.
+     */
+    fun isSnoozerEnabled(ctx: Context): Boolean =
+        prefs(ctx).getBoolean(KEY_SNOOZER_ENABLED, true)
+
+    fun setSnoozerEnabled(ctx: Context, enabled: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_SNOOZER_ENABLED, enabled).apply()
+    }
+
+    /**
+     * The last calendar reminder the listener actually intercepted. The hardest
+     * question to answer about this app is "is it working at all?", and until
+     * an event is genuinely due there is nothing on screen that says so.
+     */
+    fun recordInterception(ctx: Context, packageName: String) {
+        prefs(ctx).edit()
+            .putString(KEY_LAST_SEEN_PACKAGE, packageName)
+            .putLong(KEY_LAST_SEEN_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    /** Package and timestamp of the last interception, or null if never. */
+    fun getLastInterception(ctx: Context): Pair<String, Long>? {
+        val pkg = prefs(ctx).getString(KEY_LAST_SEEN_PACKAGE, null) ?: return null
+        val at = prefs(ctx).getLong(KEY_LAST_SEEN_AT, 0L)
+        return if (at > 0L) pkg to at else null
     }
 
     // ---------------------------------------------------------------------

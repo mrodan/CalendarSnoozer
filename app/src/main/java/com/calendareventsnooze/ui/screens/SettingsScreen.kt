@@ -31,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -39,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -150,6 +152,13 @@ fun SettingsScreen() {
             .verticalScroll(scrollState)
             .padding(Spacing.lg)
     ) {
+        // Round 21 — Calendar Apps leads the tab. It is the setting most likely
+        // to be wrong on a phone that is not a Pixel, and the one whose being
+        // wrong makes the whole app do nothing.
+        CalendarAppsCard(refreshKey) { refreshKey++ }
+
+        Spacer(Modifier.height(Spacing.lg))
+
         // UI.30 — the same shape as the two cards below it: heading band with
         // the status icon beside the title, and a body whose first row
         // summarises what the section contains and doubles as the expander.
@@ -168,7 +177,13 @@ fun SettingsScreen() {
             ) {
                 Text(
                     when {
-                        status.allGranted -> "All permissions are granted"
+                        // Round 21 — "all granted" must not claim more than it
+                        // means while the optional one is still off.
+                        status.allGranted && status.batteryUnrestricted ->
+                            "All permissions are granted."
+                        status.allGranted ->
+                            "All required permissions are granted.\n" +
+                                "Optional permission is not."
                         status.pendingCount == 1 -> "1 permission pending"
                         else -> "${status.pendingCount} permissions pending"
                     },
@@ -252,9 +267,6 @@ fun SettingsScreen() {
         }
 
         Spacer(Modifier.height(Spacing.lg))
-        CalendarAppsCard(refreshKey) { refreshKey++ }
-
-        Spacer(Modifier.height(Spacing.lg))
         PendingCard("Silent Hours/Days")
 
         Spacer(Modifier.height(Spacing.lg))
@@ -281,10 +293,20 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
         mutableStateOf(AppPrefs.getCalendarPackages(context))
     }
     var expanded by remember { mutableStateOf(false) }
+    // Round 21 — turning on a mixed-use app is confirmed, because the
+    // consequence (every email from it becomes a full-screen alarm) is not
+    // obvious from a switch.
+    var confirming by remember { mutableStateOf<CalendarApps.Entry?>(null) }
 
     // Packages the user chose that are no longer installed stay selected but are
     // shown separately, so removing an app does not silently drop the setting.
     val missing = selected - installed.map { it.packageName }.toSet()
+
+    fun setWatched(pkg: String, watched: Boolean) {
+        selected = if (watched) selected + pkg else selected - pkg
+        AppPrefs.saveCalendarPackages(context, selected)
+        onChanged()
+    }
 
     SectionCard("Calendar Apps") {
         Row(
@@ -340,10 +362,10 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
                         installed = true,
                         mixedUse = !CalendarApps.isDedicatedCalendar(entry.packageName)
                     ) { checked ->
-                        selected = if (checked) selected + entry.packageName
-                                   else selected - entry.packageName
-                        AppPrefs.saveCalendarPackages(context, selected)
-                        onChanged()
+                        val needsConfirming =
+                            checked && !CalendarApps.isDedicatedCalendar(entry.packageName)
+                        if (needsConfirming) confirming = entry
+                        else setWatched(entry.packageName, checked)
                     }
                 }
 
@@ -353,14 +375,34 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
                         packageName = pkg,
                         checked = true,
                         installed = false
-                    ) { checked ->
-                        selected = if (checked) selected + pkg else selected - pkg
-                        AppPrefs.saveCalendarPackages(context, selected)
-                        onChanged()
-                    }
+                    ) { checked -> setWatched(pkg, checked) }
                 }
             }
         }
+    }
+
+    val pending = confirming
+    if (pending != null) {
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            title = { Text("Watch ${pending.label}?") },
+            text = {
+                Text(
+                    "${pending.label} posts more than calendar reminders. Every " +
+                        "notification it sends — including mail — will trigger the " +
+                        "full-screen alarm, at any hour."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    setWatched(pending.packageName, true)
+                    confirming = null
+                }) { Text("Watch anyway") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = null }) { Text("Cancel") }
+            }
+        )
     }
 }
 
