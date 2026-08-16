@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.format.DateFormat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -34,13 +35,18 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -59,10 +65,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.calendareventsnooze.data.AppPrefs
+import com.calendareventsnooze.model.SilentHours
 import com.calendareventsnooze.ui.components.OnResumeRefresh
 import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.CalendarApps
+import java.util.Calendar
 import kotlin.math.sqrt
 
 /**
@@ -267,10 +275,7 @@ fun SettingsScreen() {
         }
 
         Spacer(Modifier.height(Spacing.lg))
-        PendingCard("Silent Hours/Days")
-
-        Spacer(Modifier.height(Spacing.lg))
-        PendingCard("Ignore These Calendars")
+        SilentHoursCard(refreshKey)
 
         Spacer(Modifier.height(Spacing.xl))
     }
@@ -443,18 +448,229 @@ private fun CalendarAppRow(
 }
 
 /**
- * A section that exists so its place in the order is settled; no controls yet.
- * UI.32 — the marker rides in the heading at 75% of its size.
+ * Round 22 — hours of the week in which calendar notifications are left alone.
+ *
+ * The window suppresses *interception* only. A reminder arriving inside it
+ * behaves exactly as it did before this app was installed, and alarms already
+ * snoozed still fire — losing one because it happened to land in the quiet
+ * window would be precisely the surprise this app exists to prevent, so the
+ * card says so rather than leaving it to be discovered.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PendingCard(title: String) {
-    SectionCard(title, titleSuffix = "[Coming soon]") {
-        Text(
-            "Not built yet.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+private fun SilentHoursCard(refreshKey: Int) {
+    val context = LocalContext.current
+    var hours by remember(refreshKey) { mutableStateOf(AppPrefs.getSilentHours(context)) }
+    var expanded by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf<Boolean?>(null) } // true = start, false = end
+
+    fun update(next: SilentHours) {
+        hours = next
+        AppPrefs.saveSilentHours(context, next)
+    }
+
+    SectionCard("Silent Hours/Days") {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                if (!hours.enabled) "Off — every reminder is intercepted"
+                else "${formatMinuteOfDay(context, hours.startMinute)} – " +
+                    "${formatMinuteOfDay(context, hours.endMinute)} · " +
+                    if (hours.isEveryDay) "every day"
+                    else SilentHours.DISPLAY_ORDER.filter { it in hours.days }
+                        .joinToString(", ") { SilentHours.shortName(it) },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.weight(1f))
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column {
+                Spacer(Modifier.height(Spacing.sm))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(Spacing.md))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Enable silent hours",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = hours.enabled,
+                        onCheckedChange = { update(hours.copy(enabled = it)) }
+                    )
+                }
+
+                AnimatedVisibility(visible = hours.enabled) {
+                    Column {
+                        Spacer(Modifier.height(Spacing.md))
+                        Text("Days", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(Spacing.sm))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                        ) {
+                            SilentHours.DISPLAY_ORDER.forEach { day ->
+                                val on = day in hours.days
+                                FilterChip(
+                                    selected = on,
+                                    onClick = {
+                                        val next = if (on) hours.days - day else hours.days + day
+                                        update(hours.copy(days = next))
+                                    },
+                                    label = {
+                                        Text(
+                                            SilentHours.shortName(day).take(1),
+                                            style = MaterialTheme.typography.labelMedium
+                                        )
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        // Selecting nothing would silently mean "never silent",
+                        // which looks identical to the feature being broken.
+                        AnimatedVisibility(visible = hours.days.isEmpty()) {
+                            Text(
+                                "Pick at least one day, or silent hours will never apply.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = Spacing.sm)
+                            )
+                        }
+
+                        Spacer(Modifier.height(Spacing.lg))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+                        ) {
+                            TimeButton(
+                                label = "From",
+                                minuteOfDay = hours.startMinute,
+                                modifier = Modifier.weight(1f)
+                            ) { picking = true }
+                            TimeButton(
+                                label = "To",
+                                minuteOfDay = hours.endMinute,
+                                modifier = Modifier.weight(1f)
+                            ) { picking = false }
+                        }
+
+                        if (hours.startMinute > hours.endMinute) {
+                            Spacer(Modifier.height(Spacing.sm))
+                            Text(
+                                "This window runs past midnight into the next morning.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Spacer(Modifier.height(Spacing.md))
+                        Text(
+                            "Inside these hours, calendar reminders are left as the " +
+                                "calendar app posted them. Alarms you have already " +
+                                "snoozed still fire.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    val pickingStart = picking
+    if (pickingStart != null) {
+        val current = if (pickingStart) hours.startMinute else hours.endMinute
+        TimeOfDayDialog(
+            title = if (pickingStart) "Silent from" else "Silent until",
+            minuteOfDay = current,
+            onDismiss = { picking = null },
+            onConfirm = { minute ->
+                update(
+                    if (pickingStart) hours.copy(startMinute = minute)
+                    else hours.copy(endMinute = minute)
+                )
+                picking = null
+            }
         )
     }
+}
+
+@Composable
+private fun TimeButton(
+    label: String,
+    minuteOfDay: Int,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    OutlinedButton(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.large) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                formatMinuteOfDay(context, minuteOfDay),
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimeOfDayDialog(
+    title: String,
+    minuteOfDay: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    val state = rememberTimePickerState(
+        initialHour = minuteOfDay / 60,
+        initialMinute = minuteOfDay % 60,
+        is24Hour = DateFormat.is24HourFormat(LocalContext.current)
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) { TimePicker(state = state) }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(state.hour * 60 + state.minute) }) { Text("Set") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+/** Minutes-from-midnight rendered in the phone's own 12/24-hour format. */
+private fun formatMinuteOfDay(context: Context, minuteOfDay: Int): String {
+    val cal = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
+        set(Calendar.MINUTE, minuteOfDay % 60)
+    }
+    return DateFormat.getTimeFormat(context).format(cal.time)
 }
 
 /**

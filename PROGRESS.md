@@ -236,6 +236,16 @@ Prompted by wanting to share the APK with other people, on phones that are not P
 - [x] **Gmail and K-9 Mail removed from the picker.** Gmail posts mail; reminders for "events from Gmail" are posted by Google Calendar. Listing it invited a dangerous toggle for no benefit — see the round 20 note on how it nearly shipped as a default.
 - versionCode 14 / versionName 2.3.
 
+## Round 22 — verified on the Pixel 10a / Android 17
+- [x] **Silent Hours/Days is real.** Day chips (Mon-first) plus a from/to window, stored through a nullable JSON mirror for the same reason `SoundProfile` is — a field added later must migrate to a default rather than becoming an empty set, which here would mean "silent all day". The listener checks it after the master switch.
+- **Two limits stated in the card rather than left to be discovered.** It suppresses *interception* only: alarms already snoozed still fire, because those were scheduled deliberately. And a window whose end precedes its start wraps past midnight, matched against the day it **started** — a Friday 22:00–07:00 window covers Saturday 01:00, which is what "Friday night" means.
+- Selecting no days is called out in red, because "never silent" would otherwise look identical to the feature being broken.
+- [x] **The Home master switch left its card**, heading and all — it is the page's own state, not one section among several — and the text beneath it is centred.
+- [x] **"Ignore These Calendars" deleted.** `PendingCard` went with it, having no callers left.
+- Verified on the phone: the ON/OFF styling, the Outlook confirmation (cancel leaves it off), the new Permissions wording in **both** branches, the day chips, the clock dialog in the phone's own 12-hour format, and the summary line. Silent Hours was switched back off and all seven days restored afterwards, so nothing was left suppressing real reminders.
+- Also confirmed live: "Last reminder seen: Calendar · Today at 6:29 PM" — a genuine calendar reminder, not a test alarm.
+- versionCode 15 / versionName 2.4.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

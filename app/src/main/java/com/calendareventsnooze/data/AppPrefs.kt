@@ -7,6 +7,7 @@ import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.MissedAlarmRecord
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozePreset
+import com.calendareventsnooze.model.SilentHours
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.model.VibrationPreset
@@ -25,6 +26,7 @@ object AppPrefs {
     private const val KEY_SOUND_PROFILE_PREFIX = "sound_profile_"
     private const val KEY_ALARM_SCREEN_STYLE = "alarm_screen_style"
     private const val KEY_SNOOZER_ENABLED = "snoozer_enabled"
+    private const val KEY_SILENT_HOURS = "silent_hours"
     private const val KEY_LAST_SEEN_PACKAGE = "last_seen_package"
     private const val KEY_LAST_SEEN_AT = "last_seen_at"
 
@@ -262,6 +264,45 @@ object AppPrefs {
 
     fun setSnoozerEnabled(ctx: Context, enabled: Boolean) {
         prefs(ctx).edit().putBoolean(KEY_SNOOZER_ENABLED, enabled).apply()
+    }
+
+    /**
+     * Round 22 — the quiet window. Stored through a nullable mirror for the same
+     * reason SoundProfile is (trap 5): a field added later must migrate to a
+     * sensible default rather than silently becoming 0 or an empty set, which
+     * here would mean "silent all day".
+     */
+    private data class SilentHoursJson(
+        val enabled: Boolean?,
+        val days: List<Int>?,
+        val startMinute: Int?,
+        val endMinute: Int?
+    )
+
+    fun getSilentHours(ctx: Context): SilentHours {
+        val json = prefs(ctx).getString(KEY_SILENT_HOURS, null) ?: return SilentHours()
+        return try {
+            val stored = gson.fromJson(json, SilentHoursJson::class.java) ?: return SilentHours()
+            val default = SilentHours()
+            SilentHours(
+                enabled = stored.enabled ?: default.enabled,
+                days = stored.days?.toSet()?.ifEmpty { null } ?: default.days,
+                startMinute = stored.startMinute?.coerceIn(0, 24 * 60 - 1)
+                    ?: default.startMinute,
+                endMinute = stored.endMinute?.coerceIn(0, 24 * 60 - 1) ?: default.endMinute
+            )
+        } catch (e: Exception) {
+            SilentHours()
+        }
+    }
+
+    fun saveSilentHours(ctx: Context, hours: SilentHours) {
+        val json = gson.toJson(
+            SilentHoursJson(
+                hours.enabled, hours.days.toList(), hours.startMinute, hours.endMinute
+            )
+        )
+        prefs(ctx).edit().putString(KEY_SILENT_HOURS, json).apply()
     }
 
     /**

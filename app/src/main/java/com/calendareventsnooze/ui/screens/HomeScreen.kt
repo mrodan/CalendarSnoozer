@@ -23,8 +23,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.ui.components.OnResumeRefresh
@@ -49,7 +51,13 @@ private fun SnoozerStatusCard(refreshKey: Int) {
     val watched = remember(refreshKey) { AppPrefs.getCalendarPackages(context) }
     val lastSeen = remember(refreshKey) { AppPrefs.getLastInterception(context) }
 
-    SectionCard(title = "Calendar Snoozer") {
+    // Round 22 — no card and no heading: the master switch is the page's own
+    // state, not one section among several, so it sits directly on the
+    // background above the lists it governs.
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             SegmentedButton(
                 selected = enabled,
@@ -71,13 +79,14 @@ private fun SnoozerStatusCard(refreshKey: Int) {
         }
 
         AnimatedVisibility(visible = !enabled) {
-            Column {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(Spacing.md))
                 Text(
                     "Calendar notifications will not activate the CalendarSnoozer " +
                         "full-screen alarm.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -85,13 +94,14 @@ private fun SnoozerStatusCard(refreshKey: Int) {
         // The other way the app goes quiet: nothing to watch. Worth saying here
         // because the fix is on a different tab entirely.
         AnimatedVisibility(visible = enabled && watched.isEmpty()) {
-            Column {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(Spacing.md))
                 Text(
                     "No calendar app is selected, so no reminder will ever be " +
                         "intercepted. Choose one under Settings → Calendar Apps.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -103,7 +113,8 @@ private fun SnoozerStatusCard(refreshKey: Int) {
                     formatScheduledTime(at)
             } ?: "No calendar reminder intercepted yet.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
         )
     }
 }

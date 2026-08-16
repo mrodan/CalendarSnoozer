@@ -35,6 +35,13 @@ class CalendarNotificationListener : NotificationListenerService() {
         // Round 21 — the Home master switch. Checked after the package filter so
         // an unrelated notification can never be mistaken for a suppressed one.
         if (!AppPrefs.isSnoozerEnabled(applicationContext)) return
+        // Round 22 — inside a quiet window the reminder is left exactly as the
+        // calendar app posted it, which is the behaviour the user had before
+        // installing this. Snoozed alarms are unaffected: they were scheduled
+        // deliberately and still fire.
+        if (AppPrefs.getSilentHours(applicationContext)
+                .isSilentAt(System.currentTimeMillis())
+        ) return
 
         // Recorded before anything can fail, so the diagnostic line on Home
         // still answers "did a reminder reach us?" even if the alarm misfires.
