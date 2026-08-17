@@ -481,21 +481,36 @@ private fun SilentHoursCard(refreshKey: Int) {
                 .clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Round 24 — days on one line, times on the next, with no
-            // "Weekdays"/"Weekends" labels.
+            // Round 25 — one row per half: the weekday schedule, then the
+            // weekend one, each carrying its own days *and* its own hours. The
+            // round 24 split (all days on one row, all hours on the next) could
+            // not say which range belonged to which days once the two differed.
+            // The day names identify the half, so no "Weekdays"/"Weekends"
+            // labels are needed.
             Column(Modifier.weight(1f)) {
-                Text(
-                    if (!hours.enabled) "Off — every reminder is intercepted"
-                    else summaryDays(hours).ifEmpty { "No days selected" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (hours.enabled && !hours.hasNoDays) {
+                if (!hours.enabled) {
                     Text(
-                        summaryTimes(context, hours),
+                        "Off — every reminder is intercepted",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                } else if (hours.hasNoDays) {
+                    Text(
+                        "No days selected",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    listOfNotNull(
+                        windowSummary(context, hours.weekdays),
+                        windowSummary(context, hours.weekends)
+                    ).forEach { line ->
+                        Text(
+                            line,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
             Icon(
@@ -661,35 +676,19 @@ private fun SilentWindowGroup(
     }
 }
 
-/** Round 24 — every selected day, in week order, across both windows. */
-private fun summaryDays(hours: SilentHours): String =
-    (SilentHours.WEEKDAY_ORDER + SilentHours.WEEKEND_ORDER)
-        .filter { it in hours.weekdays.days || it in hours.weekends.days }
-        .joinToString(", ") { SilentHours.shortName(it) }
-
 /**
- * Round 24 — the hours, with no group labels.
+ * Round 25 — one half's schedule: "Mon, Tue, Wed · 10:00 PM – 7:30 AM".
  *
- * When both halves run the same hours that is a single range. When they differ
- * both are shown, weekday range first, matching the order the days are listed
- * in above — without the labels there is nothing else to tie them together.
+ * Null when the half has no days, so a card with only weekday hours set shows
+ * one row rather than an empty second one.
  */
-private fun summaryTimes(context: Context, hours: SilentHours): String {
-    fun range(window: SilentWindow) =
-        "${formatMinuteOfDay(context, window.startMinute)} – " +
-            formatMinuteOfDay(context, window.endMinute)
-
-    val weekdayOn = hours.weekdays.days.isNotEmpty()
-    val weekendOn = hours.weekends.days.isNotEmpty()
-    val sameHours = hours.weekdays.startMinute == hours.weekends.startMinute &&
-        hours.weekdays.endMinute == hours.weekends.endMinute
-
-    return when {
-        weekdayOn && weekendOn && sameHours -> range(hours.weekdays)
-        weekdayOn && weekendOn -> "${range(hours.weekdays)}  ·  ${range(hours.weekends)}"
-        weekdayOn -> range(hours.weekdays)
-        else -> range(hours.weekends)
-    }
+private fun windowSummary(context: Context, window: SilentWindow): String? {
+    if (window.days.isEmpty()) return null
+    val days = (SilentHours.WEEKDAY_ORDER + SilentHours.WEEKEND_ORDER)
+        .filter { it in window.days }
+        .joinToString(", ") { SilentHours.shortName(it) }
+    return "$days  ·  ${formatMinuteOfDay(context, window.startMinute)} – " +
+        formatMinuteOfDay(context, window.endMinute)
 }
 
 @Composable

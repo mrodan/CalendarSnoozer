@@ -270,6 +270,11 @@ Prompted by wanting to share the APK with other people, on phones that are not P
 - **Reading `ces_prefs.xml` straight after a UI change is unreliable.** `apply()` writes asynchronously, so three consecutive reads returned three different values. `am force-stop` first, then read: that flushes and gives the true stored state. This wasted a lot of time in rounds 23 and 24 — see the testing notes.
 - versionCode 18 / versionName 2.6.1. The `V2.6` tag points at the commit *before* this fix.
 
+## Round 25 — verified on the Pixel 10a / Android 17
+- [x] The Silent Hours summary is one row per half — weekday days and hours, then weekend days and hours. Round 24's split (all days on one row, all hours on the next) could not say which range belonged to which days once the two differed; the day names identify the half, so the "Weekdays"/"Weekends" labels stay off. A half with no days selected drops its row rather than leaving an empty one.
+- Read off the phone: `Mon, Tue, Wed, Thu, Fri · 10:00 PM – 7:30 AM` / `Sat, Sun · 11:00 PM – 9:00 AM`.
+- versionCode 19 / versionName 2.7, tagged `COMMIT_SNAPSHOT_APP_WORKING_V2.7`. The `V2.6` tag was deleted at the user's request — it marked a commit with the migration flaw fixed in 2.6.1.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution
