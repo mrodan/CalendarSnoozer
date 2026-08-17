@@ -23,6 +23,14 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      Round 20 — lets the optional "Unrestricted background battery usage" row
+      open the system's own confirm dialog rather than dumping the user in a
+      list of every installed app. Google Play restricts this permission to apps
+      whose core function needs it; an alarm app qualifies, and a sideloaded
+      build is unaffected either way.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!--
       B.5 — Android 11+ (API 30) package visibility. Without this block,
@@ -31,9 +39,32 @@
       ACTION_VIEW and show an unrelated app chooser ("Open with Google").
     -->
     <queries>
+        <!--
+          Round 20 — must stay in step with CalendarApps.KNOWN. A package that is
+          not listed here is invisible to getLaunchIntentForPackage, so it can
+          neither be offered in the Settings picker nor opened for an event.
+        -->
         <package android:name="com.google.android.calendar" />
         <package android:name="com.android.calendar" />
         <package android:name="com.samsung.android.calendar" />
+        <package android:name="com.miui.calendar" />
+        <package android:name="com.xiaomi.calendar" />
+        <package android:name="com.huawei.calendar" />
+        <package android:name="com.coloros.calendar" />
+        <package android:name="com.oplus.calendar" />
+        <package android:name="com.oneplus.calendar" />
+        <package android:name="com.vivo.calendar" />
+        <package android:name="com.bbk.calendar" />
+        <package android:name="com.transsion.calendar" />
+        <package android:name="com.asus.calendar" />
+        <package android:name="com.lge.calendar" />
+        <package android:name="com.sonyericsson.organizer" />
+        <package android:name="com.motorola.calendar" />
+        <package android:name="com.microsoft.office.outlook" />
+        <package android:name="com.anydo" />
+        <package android:name="com.appgenix.bizcal" />
+        <package android:name="com.underwood.calendar_beta" />
+        <package android:name="ws.xsoh.etar" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="content" android:host="com.android.calendar" />

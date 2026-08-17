@@ -8,7 +8,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
+import android.text.format.DateFormat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -30,13 +32,21 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -54,9 +64,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.calendareventsnooze.data.AppPrefs
+import com.calendareventsnooze.model.SilentHours
+import com.calendareventsnooze.model.SilentWindow
 import com.calendareventsnooze.ui.components.OnResumeRefresh
 import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
+import com.calendareventsnooze.util.CalendarApps
+import java.util.Calendar
 import kotlin.math.sqrt
 
 /**
@@ -68,7 +83,14 @@ data class PermissionsStatus(
     val overlay: Boolean = false,
     val exactAlarm: Boolean = false,
     val readCalendar: Boolean = false,
-    val fullScreenIntent: Boolean = false
+    val fullScreenIntent: Boolean = false,
+    /**
+     * Round 20 — recommended, not required: the app works without it, it just
+     * becomes less reliable on phones that sleep background apps. Deliberately
+     * **excluded** from [pendingCount], so leaving it off never puts a red badge
+     * on the Settings tab or reports the app as misconfigured.
+     */
+    val batteryUnrestricted: Boolean = false
 ) {
     val pendingCount: Int
         get() = listOf(
@@ -84,8 +106,38 @@ fun readPermissions(context: Context) = PermissionsStatus(
     exactAlarm = canScheduleExactAlarms(context),
     readCalendar = ContextCompat.checkSelfPermission(
         context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED,
-    fullScreenIntent = canUseFullScreenIntent(context)
+    fullScreenIntent = canUseFullScreenIntent(context),
+    batteryUnrestricted = isBatteryUnrestricted(context)
 )
+
+/**
+ * True when Android has been told to stop putting the app to sleep. Optional,
+ * but it is the single biggest reliability factor on OEMs that kill background
+ * work — without it the notification listener and the alarm service can both be
+ * stopped between alarms.
+ */
+private fun isBatteryUnrestricted(context: Context): Boolean = runCatching {
+    context.getSystemService(PowerManager::class.java)
+        .isIgnoringBatteryOptimizations(context.packageName)
+}.getOrDefault(false)
+
+/**
+ * Opens the system's own confirm dialog where possible; some OEMs remove that
+ * activity, so fall back to the full battery-optimisation list.
+ */
+private fun openBatterySettings(context: Context) {
+    val direct = Intent(
+        Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        Uri.parse("package:${context.packageName}")
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    if (runCatching { context.startActivity(direct); true }.getOrDefault(false)) return
+    runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
+}
 
 @Composable
 fun SettingsScreen() {
@@ -109,9 +161,23 @@ fun SettingsScreen() {
             .verticalScroll(scrollState)
             .padding(Spacing.lg)
     ) {
-        // UI.30 — the same shape as the two cards below it: heading band with
-        // the status icon beside the title, and a body whose first row
-        // summarises what the section contains and doubles as the expander.
+        // Round 21 — Calendar Apps leads the tab. It is the setting most likely
+        // to be wrong on a phone that is not a Pixel, and the one whose being
+        // wrong makes the whole app do nothing.
+        CalendarAppsCard(refreshKey) { refreshKey++ }
+
+        Spacer(Modifier.height(Spacing.lg))
+        SilentHoursCard(refreshKey)
+
+        Spacer(Modifier.height(Spacing.lg))
+
+        // UI.30 — the same shape as the cards above it: heading band with the
+        // status icon beside the title, and a body whose first row summarises
+        // what the section contains and doubles as the expander.
+        //
+        // Round 24 — it sits last now. The two above it are settings the user
+        // changes; this one is a checklist they visit once and then only when
+        // something breaks.
         SectionCard(
             title = "Permissions",
             headerExtra = {
@@ -127,7 +193,13 @@ fun SettingsScreen() {
             ) {
                 Text(
                     when {
-                        status.allGranted -> "All permissions are granted"
+                        // Round 21 — "all granted" must not claim more than it
+                        // means while the optional one is still off.
+                        status.allGranted && status.batteryUnrestricted ->
+                            "All permissions are granted."
+                        status.allGranted ->
+                            "All required permissions are granted.\n" +
+                                "Optional permission is not."
                         status.pendingCount == 1 -> "1 permission pending"
                         else -> "${status.pendingCount} permissions pending"
                     },
@@ -191,38 +263,493 @@ fun SettingsScreen() {
                     PermissionRow(
                         name = "Full-screen notifications",
                         description = "Required for the alarm to take over the screen",
-                        granted = status.fullScreenIntent,
-                        isLast = true
+                        granted = status.fullScreenIntent
                     ) {
                         openFullScreenIntentSettings(context)
+                    }
+                    // Optional — see PermissionsStatus.batteryUnrestricted. It
+                    // never counts towards the badge or the pending total.
+                    PermissionRow(
+                        name = "Unrestricted background battery usage (OPTIONAL)",
+                        description = "Recommended: stops Android sleeping the app " +
+                            "between alarms",
+                        granted = status.batteryUnrestricted,
+                        isLast = true
+                    ) {
+                        openBatterySettings(context)
                     }
                 }
             }
         }
-
-        Spacer(Modifier.height(Spacing.lg))
-        PendingCard("Silent Hours/Days")
-
-        Spacer(Modifier.height(Spacing.lg))
-        PendingCard("Ignore These Calendars")
 
         Spacer(Modifier.height(Spacing.xl))
     }
 }
 
 /**
- * A section that exists so its place in the order is settled; no controls yet.
- * UI.32 — the marker rides in the heading at 75% of its size.
+ * Round 20 — which apps' reminders the takeover reacts to.
+ *
+ * The watched set was hardcoded to three packages and had no UI at all, so on a
+ * phone whose calendar was not one of them the app silently did nothing while
+ * reporting every permission granted. The list offers every known calendar app
+ * that is installed, plus anything the system reports as a calendar, and it
+ * warns rather than silently doing nothing when the selection is empty.
  */
 @Composable
-private fun PendingCard(title: String) {
-    SectionCard(title, titleSuffix = "[Coming soon]") {
+private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
+    val context = LocalContext.current
+    val installed = remember(refreshKey) { CalendarApps.installedKnown(context) }
+    var selected by remember(refreshKey) {
+        mutableStateOf(AppPrefs.getCalendarPackages(context))
+    }
+    var expanded by remember { mutableStateOf(false) }
+    // Round 21 — turning on a mixed-use app is confirmed, because the
+    // consequence (every email from it becomes a full-screen alarm) is not
+    // obvious from a switch.
+    var confirming by remember { mutableStateOf<CalendarApps.Entry?>(null) }
+
+    // Packages the user chose that are no longer installed stay selected but are
+    // shown separately, so removing an app does not silently drop the setting.
+    val missing = selected - installed.map { it.packageName }.toSet()
+
+    fun setWatched(pkg: String, watched: Boolean) {
+        selected = if (watched) selected + pkg else selected - pkg
+        AppPrefs.saveCalendarPackages(context, selected)
+        onChanged()
+    }
+
+    SectionCard("Calendar Apps to Snooze") {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                when {
+                    selected.isEmpty() -> "No calendar app selected"
+                    selected.size == 1 -> "1 calendar app watched"
+                    else -> "${selected.size} calendar apps watched"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (selected.isEmpty()) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.weight(1f))
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column {
+                Spacer(Modifier.height(Spacing.sm))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(Spacing.md))
+                Text(
+                    "Reminders from the apps you tick here are replaced by the " +
+                        "full-screen alarm. Everything else is left alone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(Spacing.sm))
+
+                if (installed.isEmpty() && missing.isEmpty()) {
+                    Text(
+                        "No calendar app found on this phone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(vertical = Spacing.md)
+                    )
+                }
+
+                installed.forEach { entry ->
+                    CalendarAppRow(
+                        label = entry.label,
+                        packageName = entry.packageName,
+                        checked = entry.packageName in selected,
+                        installed = true,
+                        mixedUse = !CalendarApps.isDedicatedCalendar(entry.packageName)
+                    ) { checked ->
+                        val needsConfirming =
+                            checked && !CalendarApps.isDedicatedCalendar(entry.packageName)
+                        if (needsConfirming) confirming = entry
+                        else setWatched(entry.packageName, checked)
+                    }
+                }
+
+                missing.forEach { pkg ->
+                    CalendarAppRow(
+                        label = CalendarApps.labelFor(context, pkg),
+                        packageName = pkg,
+                        checked = true,
+                        installed = false
+                    ) { checked -> setWatched(pkg, checked) }
+                }
+            }
+        }
+    }
+
+    val pending = confirming
+    if (pending != null) {
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            title = { Text("Watch ${pending.label}?") },
+            text = {
+                Text(
+                    "${pending.label} posts more than calendar reminders. Every " +
+                        "notification it sends — including mail — will trigger the " +
+                        "full-screen alarm, at any hour."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    setWatched(pending.packageName, true)
+                    confirming = null
+                }) { Text("Watch anyway") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = null }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun CalendarAppRow(
+    label: String,
+    packageName: String,
+    checked: Boolean,
+    installed: Boolean,
+    mixedUse: Boolean = false,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                when {
+                    !installed -> "$packageName · not installed"
+                    // The warning that stops someone turning every incoming
+                    // email into a 3am full-screen alarm.
+                    mixedUse -> "Also posts non-calendar notifications"
+                    else -> packageName
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (mixedUse && installed) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.size(Spacing.sm))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * Round 22 — hours of the week in which calendar notifications are left alone.
+ *
+ * The window suppresses *interception* only. A reminder arriving inside it
+ * behaves exactly as it did before this app was installed, and alarms already
+ * snoozed still fire — losing one because it happened to land in the quiet
+ * window would be precisely the surprise this app exists to prevent, so the
+ * card says so rather than leaving it to be discovered.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SilentHoursCard(refreshKey: Int) {
+    val context = LocalContext.current
+    var hours by remember(refreshKey) { mutableStateOf(AppPrefs.getSilentHours(context)) }
+    var expanded by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf<PickTarget?>(null) }
+
+    fun update(next: SilentHours) {
+        hours = next
+        AppPrefs.saveSilentHours(context, next)
+    }
+
+    SectionCard("Silent Hours & Days") {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Round 25 — one row per half: the weekday schedule, then the
+            // weekend one, each carrying its own days *and* its own hours. The
+            // round 24 split (all days on one row, all hours on the next) could
+            // not say which range belonged to which days once the two differed.
+            // The day names identify the half, so no "Weekdays"/"Weekends"
+            // labels are needed.
+            Column(Modifier.weight(1f)) {
+                if (!hours.enabled) {
+                    Text(
+                        "Off — every reminder is intercepted",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else if (hours.hasNoDays) {
+                    Text(
+                        "No days selected",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    listOfNotNull(
+                        windowSummary(context, hours.weekdays),
+                        windowSummary(context, hours.weekends)
+                    ).forEach { line ->
+                        Text(
+                            line,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column {
+                Spacer(Modifier.height(Spacing.sm))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(Spacing.md))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Enable silent hours",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = hours.enabled,
+                        onCheckedChange = { update(hours.copy(enabled = it)) }
+                    )
+                }
+
+                AnimatedVisibility(visible = hours.enabled) {
+                    Column {
+                        Spacer(Modifier.height(Spacing.lg))
+                        SilentWindowGroup(
+                            title = "Weekdays",
+                            order = SilentHours.WEEKDAY_ORDER,
+                            window = hours.weekdays,
+                            onWindowChange = { update(hours.copy(weekdays = it)) },
+                            onPickTime = { start -> picking = PickTarget(true, start) }
+                        )
+
+                        Spacer(Modifier.height(Spacing.lg))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Spacer(Modifier.height(Spacing.lg))
+
+                        SilentWindowGroup(
+                            title = "Weekends",
+                            order = SilentHours.WEEKEND_ORDER,
+                            window = hours.weekends,
+                            onWindowChange = { update(hours.copy(weekends = it)) },
+                            onPickTime = { start -> picking = PickTarget(false, start) }
+                        )
+
+                        // Nothing selected anywhere reads as "never silent",
+                        // which looks identical to the feature being broken.
+                        AnimatedVisibility(visible = hours.hasNoDays) {
+                            Text(
+                                "Pick at least one day, or silent hours will never apply.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = Spacing.md)
+                            )
+                        }
+
+                        Spacer(Modifier.height(Spacing.md))
+                        Text(
+                            "Inside these hours, calendar reminders are left as the " +
+                                "calendar app posted them. Alarms you have already " +
+                                "snoozed still fire.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    val target = picking
+    if (target != null) {
+        val window = if (target.weekdays) hours.weekdays else hours.weekends
+        val current = if (target.isStart) window.startMinute else window.endMinute
+        TimeOfDayDialog(
+            title = (if (target.weekdays) "Weekdays" else "Weekends") +
+                if (target.isStart) " — silent from" else " — silent until",
+            minuteOfDay = current,
+            onDismiss = { picking = null },
+            onConfirm = { minute ->
+                val next = if (target.isStart) window.copy(startMinute = minute)
+                           else window.copy(endMinute = minute)
+                update(
+                    if (target.weekdays) hours.copy(weekdays = next)
+                    else hours.copy(weekends = next)
+                )
+                picking = null
+            }
+        )
+    }
+}
+
+/** Which of the four time fields a picker is open for. */
+private data class PickTarget(val weekdays: Boolean, val isStart: Boolean)
+
+/**
+ * Round 23 — one half of the schedule. Weekdays and weekends each own their
+ * days *and* their hours, so "10pm on work nights, 1am at the weekend" is
+ * expressible; a single window could not say that.
+ */
+@Composable
+private fun SilentWindowGroup(
+    title: String,
+    order: List<Int>,
+    window: SilentWindow,
+    onWindowChange: (SilentWindow) -> Unit,
+    onPickTime: (isStart: Boolean) -> Unit
+) {
+    Text(title, style = MaterialTheme.typography.titleSmall)
+    Spacer(Modifier.height(Spacing.sm))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+    ) {
+        order.forEach { day ->
+            val on = day in window.days
+            FilterChip(
+                selected = on,
+                onClick = {
+                    val next = if (on) window.days - day else window.days + day
+                    onWindowChange(window.copy(days = next))
+                },
+                label = {
+                    Text(
+                        SilentHours.shortName(day).take(1),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        // The weekend row is two chips wide; without this they would stretch to
+        // half the card each and stop matching the weekday row's chip size.
+        repeat(SilentHours.WEEKDAY_ORDER.size - order.size) {
+            Spacer(Modifier.weight(1f))
+        }
+    }
+
+    Spacer(Modifier.height(Spacing.md))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+    ) {
+        TimeButton("From", window.startMinute, Modifier.weight(1f)) { onPickTime(true) }
+        TimeButton("To", window.endMinute, Modifier.weight(1f)) { onPickTime(false) }
+    }
+
+    if (window.startMinute > window.endMinute) {
+        Spacer(Modifier.height(Spacing.sm))
         Text(
-            "Not built yet.",
-            style = MaterialTheme.typography.bodyMedium,
+            "Runs past midnight into the next morning.",
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+/**
+ * Round 25 — one half's schedule: "Mon, Tue, Wed · 10:00 PM – 7:30 AM".
+ *
+ * Null when the half has no days, so a card with only weekday hours set shows
+ * one row rather than an empty second one.
+ */
+private fun windowSummary(context: Context, window: SilentWindow): String? {
+    if (window.days.isEmpty()) return null
+    val days = (SilentHours.WEEKDAY_ORDER + SilentHours.WEEKEND_ORDER)
+        .filter { it in window.days }
+        .joinToString(", ") { SilentHours.shortName(it) }
+    return "$days  ·  ${formatMinuteOfDay(context, window.startMinute)} – " +
+        formatMinuteOfDay(context, window.endMinute)
+}
+
+@Composable
+private fun TimeButton(
+    label: String,
+    minuteOfDay: Int,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    OutlinedButton(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.large) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                formatMinuteOfDay(context, minuteOfDay),
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimeOfDayDialog(
+    title: String,
+    minuteOfDay: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    val state = rememberTimePickerState(
+        initialHour = minuteOfDay / 60,
+        initialMinute = minuteOfDay % 60,
+        is24Hour = DateFormat.is24HourFormat(LocalContext.current)
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) { TimePicker(state = state) }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(state.hour * 60 + state.minute) }) { Text("Set") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+/** Minutes-from-midnight rendered in the phone's own 12/24-hour format. */
+private fun formatMinuteOfDay(context: Context, minuteOfDay: Int): String {
+    val cal = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
+        set(Calendar.MINUTE, minuteOfDay % 60)
+    }
+    return DateFormat.getTimeFormat(context).format(cal.time)
 }
 
 /**

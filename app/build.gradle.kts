@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -10,9 +13,36 @@ android {
         applicationId = "com.calendareventsnooze"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "2.1"
+        versionCode = 19
+        versionName = "2.7"
     }
+    // Release signing, loaded from the gitignored keystore.properties. Without
+    // this block assembleRelease silently produces app-release-UNSIGNED.apk,
+    // which no phone will install — and the failure is easy to miss because the
+    // build still reports success.
+    signingConfigs {
+        create("release") {
+            val propsFile = rootProject.file("keystore.properties")
+            if (propsFile.exists()) {
+                val props = Properties().apply { FileInputStream(propsFile).use { load(it) } }
+                storeFile = rootProject.file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            // Shrinking stays off: Gson resolves the model classes' fields
+            // reflectively, so R8 would rename them and break every saved
+            // setting on upgrade.
+            isMinifyEnabled = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

@@ -19,11 +19,16 @@ import androidx.core.content.ContextCompat
  */
 object CalendarLauncher {
 
-    private val CALENDAR_PACKAGES = listOf(
-        "com.google.android.calendar",
-        "com.android.calendar",
-        "com.samsung.android.calendar"
-    )
+    /**
+     * Round 20 — the candidate list moved to [CalendarApps] so it covers the
+     * OEM calendars too, and so it cannot drift from the set of apps whose
+     * notifications are intercepted. Only the *dedicated* calendars are opened:
+     * handing a calendar event URI to Gmail achieves nothing. Trap 4 still
+     * holds — only packages on this list are ever targeted, never "whatever
+     * handles the URI".
+     */
+    private val CALENDAR_PACKAGES: List<String>
+        get() = CalendarApps.KNOWN.keys.filter { CalendarApps.isDedicatedCalendar(it) }
 
     /** A concrete calendar event instance resolved from the calendar provider. */
     private data class CalendarHit(val eventId: Long, val begin: Long, val end: Long)

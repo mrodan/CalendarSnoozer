@@ -214,6 +214,67 @@ Verified directly on the device, not an emulator.
 - Verified on the phone: both card shapes, the scrim dimming everything but the buttons, a tap on the scrim closing it, and a cluster action still firing through it. The "N permissions pending" wording was checked on the emulator, since seeing it on the phone would have meant revoking one of its permissions.
 - versionCode 12 / versionName 2.1.
 
+## Round 20 — portability beyond Pixels
+Prompted by wanting to share the APK with other people, on phones that are not Pixels.
+- [x] **Release signing restored.** `assembleRelease` had been producing `app-release-UNSIGNED.apk` — uninstallable — while still reporting BUILD SUCCESSFUL. The `signingConfigs`/`buildTypes` block had gone missing from `build.gradle.kts`, the same drift that once reset versionCode to 1. Verified with `apksigner`: signs under `CN=Calendar Snoozer`.
+- [x] **The watched-calendar list is no longer three hardcoded packages.** `CalendarNotificationListener` ignored anything that wasn't Google, AOSP or Samsung Calendar, so on a Xiaomi, Huawei, Oppo or vivo the app installed, reported every permission granted, and then did nothing at all. New `util/CalendarApps.kt` is the single registry, covering the OEM calendars, and `AppPrefs` now defaults to whichever of them is actually installed.
+- [x] **A Calendar Apps picker in Settings.** `saveCalendarPackages` had existed since the beginning with no UI calling it, so a user whose calendar wasn't recognised had no way to fix it. The card lists every known calendar app that is installed plus anything the system reports as one, warns when the selection is empty, and keeps a selected-but-uninstalled package visible rather than silently dropping it.
+- **A bug of my own, caught on the phone.** The first cut defaulted to "every known calendar app that is installed", which included **Gmail** — every arriving email would have fired a full-screen alarm. The registry now separates `DEDICATED` calendars (default on) from `MIXED_USE` apps (offered, never default, flagged in red as "Also posts non-calendar notifications"). See trap 19.
+- [x] **The notification listener asks to be rebound.** `onListenerDisconnected` → `requestRebind`. Android unbinds listeners under memory pressure and aggressive OEMs do it routinely; without this the service stays dead until reboot or a manual permission toggle, with no symptom other than nothing happening.
+- [x] **"Open Calendar Event" covers the OEM calendars too**, from the same registry — but only the `DEDICATED` ones, since handing an event URI to Gmail achieves nothing. Trap 4 still holds: only listed packages are ever targeted.
+- [x] **Optional permission row: "Unrestricted background battery usage (OPTIONAL)".** Excluded from `pendingCount`, so leaving it off never shows a red badge or contradicts "All permissions are granted" — verified in both directions on the emulator by whitelisting via `dumpsys deviceidle`.
+- **OEM skins cannot be emulated.** The Android SDK ships AOSP/Google API images only; there are no Samsung, Xiaomi, Oppo, vivo, OnePlus or Huawei system images. What was tested is Android 14 (emulator, fresh data) and Android 17 (the Pixel), plus the *behaviours* those OEMs provoke — empty/partial calendar selection, an unrecognised calendar app, and battery-optimisation state. The Android 16 AVD still will not leave `offline` on this machine, exactly as recorded in round 9.
+- versionCode 13 / versionName 2.2.
+
+## Round 21 — the app explains itself
+- [x] **Master switch on Home.** A segmented control matching Sequencing's — "Snoozer is ON" / "Turn OFF Snoozer". Off stops notifications being intercepted; it deliberately does **not** cancel alarms already snoozed, which were scheduled on purpose. The OFF half takes the error roles (container, content, border) rather than the usual selected green, with the red explanation underneath.
+- [x] **"Last reminder seen: <app> · <time>"** on Home, recorded by the listener before anything else can fail. Until now nothing on screen answered "is this working?" until an event happened to be due.
+- [x] **A warning on Home when no calendar app is selected**, because the fix for that is on a different tab.
+- [x] **Settings leads with Calendar Apps**, the setting most likely to be wrong on a non-Pixel and the one whose being wrong makes everything else pointless.
+- [x] **Enabling a mixed-use app is confirmed**, spelling out that every notification it posts — mail included — will trigger the alarm at any hour.
+- [x] **The Permissions summary tells the truth about the optional one**: "All required permissions are granted. / Optional permission is not." when the battery exemption is off, and "All permissions are granted." only when everything including it is on.
+- [x] **Gmail and K-9 Mail removed from the picker.** Gmail posts mail; reminders for "events from Gmail" are posted by Google Calendar. Listing it invited a dangerous toggle for no benefit — see the round 20 note on how it nearly shipped as a default.
+- versionCode 14 / versionName 2.3.
+
+## Round 22 — verified on the Pixel 10a / Android 17
+- [x] **Silent Hours/Days is real.** Day chips (Mon-first) plus a from/to window, stored through a nullable JSON mirror for the same reason `SoundProfile` is — a field added later must migrate to a default rather than becoming an empty set, which here would mean "silent all day". The listener checks it after the master switch.
+- **Two limits stated in the card rather than left to be discovered.** It suppresses *interception* only: alarms already snoozed still fire, because those were scheduled deliberately. And a window whose end precedes its start wraps past midnight, matched against the day it **started** — a Friday 22:00–07:00 window covers Saturday 01:00, which is what "Friday night" means.
+- Selecting no days is called out in red, because "never silent" would otherwise look identical to the feature being broken.
+- [x] **The Home master switch left its card**, heading and all — it is the page's own state, not one section among several — and the text beneath it is centred.
+- [x] **"Ignore These Calendars" deleted.** `PendingCard` went with it, having no callers left.
+- Verified on the phone: the ON/OFF styling, the Outlook confirmation (cancel leaves it off), the new Permissions wording in **both** branches, the day chips, the clock dialog in the phone's own 12-hour format, and the summary line. Silent Hours was switched back off and all seven days restored afterwards, so nothing was left suppressing real reminders.
+- Also confirmed live: "Last reminder seen: Calendar · Today at 6:29 PM" — a genuine calendar reminder, not a test alarm.
+- versionCode 15 / versionName 2.4.
+
+## Round 23
+- [x] **"Silent Hours & Days"**, split into **Weekdays** and **Weekends**, each owning its own day chips *and* its own from/to window. One window could not express "10pm on work nights, 1am at the weekend", which is the schedule most people actually keep. The weekday chips are Mon–Fri and the weekend chips Sat–Sun, both sized off the five-chip row so they line up.
+- The wrap-past-midnight rule is unchanged and now matters more: a window is matched against the day it **started**, so the weekday window legitimately silences a Saturday morning after a Friday night.
+- [x] **The OFF switch outlines the whole control in red**, not just the selected half — each segment draws its own border, so the inactive one needs `inactiveBorderColor` telling too. A border that changed on one segment read as decoration on that button rather than a state the app is in.
+- [x] OFF text is now "Calendar notifications will show as usual".
+- Verified on the phone: the full red outline and the new text, and the renamed card showing the weekday summary.
+- **NOT verified — the split's persistence.** After the change the phone's `silent_hours` pref still held the *round 22* shape (`days`/`startMinute`/`endMinute`) rather than the new `weekdayDays`/`weekendDays` keys, and the card showed no Weekends line, which is what reading that shape would produce. `saveSilentHours` only writes the new mirror, so by inspection this should not happen; the phone was unplugged before it could be traced. **Next session: open Silent Hours & Days, change one day chip, then read `silent_hours` out of `ces_prefs.xml`.** If it still has `days`, the migration write path is broken and existing settings are being read but never rewritten.
+- versionCode 16 / versionName 2.5.
+
+## Round 24 — verified on the API 34 emulator
+- [x] The Silent Hours summary is two rows — days on the first, hours on the second — with no "Weekdays"/"Weekends" labels, and the expand chevron beside them.
+- **When the two halves run different hours, both ranges appear** (weekday first, matching the order the days are listed). Without the group labels there is nothing tying a range to its days, so this is only readable while the two are the same or obviously different. Worth revisiting if it proves confusing.
+- [x] OFF text is now "You still get your old Calendar notifications".
+- [x] Settings order is Calendar Apps to Snooze → Silent Hours & Days → Permissions. Permissions is a checklist visited once, not a setting that gets changed.
+- [x] "Calendar Apps" renamed "Calendar Apps to Snooze".
+- **Round 23's open question is resolved.** `saveSilentHours` writes the split schema correctly — proven on the emulator, which stored `{"enabled":true,"weekdayDays":[2,3,4,5,6],…,"weekendDays":[7,1],…}`. The phone reading that prompted the doubt was almost certainly a stale read of `ces_prefs.xml`: `apply()` writes asynchronously and the read followed the toggle by about a second. (It also explains the alphabetical key order seen there — Gson reflects over fields in ART's own order, not declaration order.)
+- [x] **Migrating now happens on read, not on next edit.** `getSilentHours` rewrites a round 22 value in the new shape the first time it sees one. Without that a legacy value would be migrated in memory on every launch and never written back, so the weekend half would look permanently empty — the exact symptom that was under investigation.
+- versionCode 17 / versionName 2.6, tagged `COMMIT_SNAPSHOT_APP_WORKING_V2.6`.
+
+## Round 24.1 — migration hardening, found on the phone
+- **The legacy fields now stand or fall together, keyed on `days`.** Reading `days`, `startMinute` and `endMinute` independently let a *partial* stored value produce a mongrel — legacy times applied to default days — which is how the phone ended up with a weekend window of Sat+Sun 23:00–09:00 that had never been chosen, and with Silent Hours enabled at all.
+- **Reading `ces_prefs.xml` straight after a UI change is unreliable.** `apply()` writes asynchronously, so three consecutive reads returned three different values. `am force-stop` first, then read: that flushes and gives the true stored state. This wasted a lot of time in rounds 23 and 24 — see the testing notes.
+- versionCode 18 / versionName 2.6.1. The `V2.6` tag points at the commit *before* this fix.
+
+## Round 25 — verified on the Pixel 10a / Android 17
+- [x] The Silent Hours summary is one row per half — weekday days and hours, then weekend days and hours. Round 24's split (all days on one row, all hours on the next) could not say which range belonged to which days once the two differed; the day names identify the half, so the "Weekdays"/"Weekends" labels stay off. A half with no days selected drops its row rather than leaving an empty one.
+- Read off the phone: `Mon, Tue, Wed, Thu, Fri · 10:00 PM – 7:30 AM` / `Sat, Sun · 11:00 PM – 9:00 AM`.
+- versionCode 19 / versionName 2.7, tagged `COMMIT_SNAPSHOT_APP_WORKING_V2.7`. The `V2.6` tag was deleted at the user's request — it marked a commit with the migration flaw fixed in 2.6.1.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

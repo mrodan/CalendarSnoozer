@@ -1,5 +1,6 @@
 package com.calendareventsnooze.service
 
+import android.content.ComponentName
 import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -10,9 +11,41 @@ import com.calendareventsnooze.util.putAlarmEvent
 
 class CalendarNotificationListener : NotificationListenerService() {
 
+    /**
+     * Round 20 — Android unbinds notification listeners under memory pressure,
+     * and OEMs that kill background processes aggressively (Xiaomi, Oppo, vivo,
+     * OnePlus, Huawei, and Samsung's "Sleeping apps") do it routinely. Without
+     * this the service stays unbound until the phone reboots or the user toggles
+     * the permission by hand — the app looks alive, every permission reads
+     * granted, and no calendar notification is ever seen again.
+     *
+     * `requestRebind` asks the system to bind us again; it is the documented
+     * remedy and is safe to call even if the disconnect was deliberate.
+     */
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        runCatching {
+            requestRebind(ComponentName(this, CalendarNotificationListener::class.java))
+        }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName ?: return
         if (pkg !in AppPrefs.getCalendarPackages(applicationContext)) return
+        // Round 21 — the Home master switch. Checked after the package filter so
+        // an unrelated notification can never be mistaken for a suppressed one.
+        if (!AppPrefs.isSnoozerEnabled(applicationContext)) return
+        // Round 22 — inside a quiet window the reminder is left exactly as the
+        // calendar app posted it, which is the behaviour the user had before
+        // installing this. Snoozed alarms are unaffected: they were scheduled
+        // deliberately and still fire.
+        if (AppPrefs.getSilentHours(applicationContext)
+                .isSilentAt(System.currentTimeMillis())
+        ) return
+
+        // Recorded before anything can fail, so the diagnostic line on Home
+        // still answers "did a reminder reach us?" even if the alarm misfires.
+        AppPrefs.recordInterception(applicationContext, pkg)
 
         val extras = sbn.notification.extras
         val title = extras.getString("android.title")

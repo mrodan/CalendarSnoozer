@@ -7,9 +7,12 @@ import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.MissedAlarmRecord
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozePreset
+import com.calendareventsnooze.model.SilentHours
+import com.calendareventsnooze.model.SilentWindow
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.model.VibrationPreset
+import com.calendareventsnooze.util.CalendarApps
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -23,6 +26,10 @@ object AppPrefs {
     private const val KEY_AUTO_SNOOZE_PREFIX = "auto_snooze_count_"
     private const val KEY_SOUND_PROFILE_PREFIX = "sound_profile_"
     private const val KEY_ALARM_SCREEN_STYLE = "alarm_screen_style"
+    private const val KEY_SNOOZER_ENABLED = "snoozer_enabled"
+    private const val KEY_SILENT_HOURS = "silent_hours"
+    private const val KEY_LAST_SEEN_PACKAGE = "last_seen_package"
+    private const val KEY_LAST_SEEN_AT = "last_seen_at"
 
     private val gson = Gson()
 
@@ -245,6 +252,135 @@ object AppPrefs {
     }
 
     // ---------------------------------------------------------------------
+    // Master switch and "is this working?" diagnostics (round 21)
+    // ---------------------------------------------------------------------
+
+    /**
+     * The Home switch. Off means calendar notifications are left alone — it does
+     * **not** cancel alarms the user has already snoozed, which were scheduled
+     * deliberately and still fire.
+     */
+    fun isSnoozerEnabled(ctx: Context): Boolean =
+        prefs(ctx).getBoolean(KEY_SNOOZER_ENABLED, true)
+
+    fun setSnoozerEnabled(ctx: Context, enabled: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_SNOOZER_ENABLED, enabled).apply()
+    }
+
+    /**
+     * Round 22 — the quiet window. Stored through a nullable mirror for the same
+     * reason SoundProfile is (trap 5): a field added later must migrate to a
+     * sensible default rather than silently becoming 0 or an empty set, which
+     * here would mean "silent all day".
+     */
+    private data class SilentHoursJson(
+        val enabled: Boolean?,
+        // Round 23 — the two windows. Null on a profile written before the
+        // split, which is what the legacy fields below are still read for.
+        val weekdayDays: List<Int>?,
+        val weekdayStart: Int?,
+        val weekdayEnd: Int?,
+        val weekendDays: List<Int>?,
+        val weekendStart: Int?,
+        val weekendEnd: Int?,
+        // Round 22's single window. Kept so an existing setting migrates into
+        // the split rather than silently reverting to the defaults.
+        val days: List<Int>?,
+        val startMinute: Int?,
+        val endMinute: Int?
+    )
+
+    fun getSilentHours(ctx: Context): SilentHours {
+        val json = prefs(ctx).getString(KEY_SILENT_HOURS, null) ?: return SilentHours()
+        val migrated = readSilentHours(json)
+        // Round 24 — upgrade the stored shape as soon as it is read, rather than
+        // waiting for the user to edit something. Otherwise a round 22 value
+        // would be migrated in memory on every launch and never written back,
+        // and the split would look like it had silently lost the weekend half.
+        if (json.contains("\"days\"")) saveSilentHours(ctx, migrated)
+        return migrated
+    }
+
+    private fun readSilentHours(json: String): SilentHours {
+        return try {
+            val stored = gson.fromJson(json, SilentHoursJson::class.java) ?: return SilentHours()
+            val default = SilentHours()
+
+            // A round 22 setting had one set of hours for the whole week; split
+            // it across both groups so the times the user chose survive.
+            //
+            // All three legacy fields stand or fall together, keyed on `days`.
+            // Reading them independently let a partial value produce a mongrel —
+            // legacy *times* applied to *default* days — which is how a phone
+            // ended up silencing weekends that had never been selected.
+            val isLegacy = stored.days != null
+            val legacyDays = if (isLegacy) stored.days?.toSet() else null
+            val legacyStart =
+                if (isLegacy) stored.startMinute?.coerceIn(0, 24 * 60 - 1) else null
+            val legacyEnd = if (isLegacy) stored.endMinute?.coerceIn(0, 24 * 60 - 1) else null
+
+            SilentHours(
+                enabled = stored.enabled ?: default.enabled,
+                weekdays = SilentWindow(
+                    days = stored.weekdayDays?.toSet()
+                        ?: legacyDays?.intersect(SilentHours.WEEKDAYS)
+                        ?: default.weekdays.days,
+                    startMinute = stored.weekdayStart?.coerceIn(0, 24 * 60 - 1)
+                        ?: legacyStart ?: default.weekdays.startMinute,
+                    endMinute = stored.weekdayEnd?.coerceIn(0, 24 * 60 - 1)
+                        ?: legacyEnd ?: default.weekdays.endMinute
+                ),
+                weekends = SilentWindow(
+                    days = stored.weekendDays?.toSet()
+                        ?: legacyDays?.intersect(SilentHours.WEEKEND)
+                        ?: default.weekends.days,
+                    startMinute = stored.weekendStart?.coerceIn(0, 24 * 60 - 1)
+                        ?: legacyStart ?: default.weekends.startMinute,
+                    endMinute = stored.weekendEnd?.coerceIn(0, 24 * 60 - 1)
+                        ?: legacyEnd ?: default.weekends.endMinute
+                )
+            )
+        } catch (e: Exception) {
+            SilentHours()
+        }
+    }
+
+    fun saveSilentHours(ctx: Context, hours: SilentHours) {
+        val json = gson.toJson(
+            SilentHoursJson(
+                enabled = hours.enabled,
+                weekdayDays = hours.weekdays.days.toList(),
+                weekdayStart = hours.weekdays.startMinute,
+                weekdayEnd = hours.weekdays.endMinute,
+                weekendDays = hours.weekends.days.toList(),
+                weekendStart = hours.weekends.startMinute,
+                weekendEnd = hours.weekends.endMinute,
+                days = null, startMinute = null, endMinute = null
+            )
+        )
+        prefs(ctx).edit().putString(KEY_SILENT_HOURS, json).apply()
+    }
+
+    /**
+     * The last calendar reminder the listener actually intercepted. The hardest
+     * question to answer about this app is "is it working at all?", and until
+     * an event is genuinely due there is nothing on screen that says so.
+     */
+    fun recordInterception(ctx: Context, packageName: String) {
+        prefs(ctx).edit()
+            .putString(KEY_LAST_SEEN_PACKAGE, packageName)
+            .putLong(KEY_LAST_SEEN_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    /** Package and timestamp of the last interception, or null if never. */
+    fun getLastInterception(ctx: Context): Pair<String, Long>? {
+        val pkg = prefs(ctx).getString(KEY_LAST_SEEN_PACKAGE, null) ?: return null
+        val at = prefs(ctx).getLong(KEY_LAST_SEEN_AT, 0L)
+        return if (at > 0L) pkg to at else null
+    }
+
+    // ---------------------------------------------------------------------
     // Alarm screen style (UI.29)
     // ---------------------------------------------------------------------
 
@@ -372,14 +508,15 @@ object AppPrefs {
     // Calendar packages
     // ---------------------------------------------------------------------
 
-    private val defaultCalendarPackages = setOf(
-        "com.google.android.calendar",
-        "com.android.calendar",
-        "com.samsung.android.calendar"
-    )
-
+    /**
+     * Round 20 — the watched set now defaults to whichever known calendar apps
+     * are actually on the phone, rather than a hardcoded three. On a Xiaomi or a
+     * Huawei the old default matched nothing, so no notification was ever
+     * intercepted while every permission still reported green.
+     */
     fun getCalendarPackages(ctx: Context): Set<String> =
-        prefs(ctx).getStringSet(KEY_CALENDAR_PACKAGES, null) ?: defaultCalendarPackages
+        prefs(ctx).getStringSet(KEY_CALENDAR_PACKAGES, null)
+            ?: CalendarApps.defaultsFor(ctx)
 
     fun saveCalendarPackages(ctx: Context, packages: Set<String>) {
         prefs(ctx).edit().putStringSet(KEY_CALENDAR_PACKAGES, packages).apply()
