@@ -265,6 +265,11 @@ Prompted by wanting to share the APK with other people, on phones that are not P
 - [x] **Migrating now happens on read, not on next edit.** `getSilentHours` rewrites a round 22 value in the new shape the first time it sees one. Without that a legacy value would be migrated in memory on every launch and never written back, so the weekend half would look permanently empty — the exact symptom that was under investigation.
 - versionCode 17 / versionName 2.6, tagged `COMMIT_SNAPSHOT_APP_WORKING_V2.6`.
 
+## Round 24.1 — migration hardening, found on the phone
+- **The legacy fields now stand or fall together, keyed on `days`.** Reading `days`, `startMinute` and `endMinute` independently let a *partial* stored value produce a mongrel — legacy times applied to default days — which is how the phone ended up with a weekend window of Sat+Sun 23:00–09:00 that had never been chosen, and with Silent Hours enabled at all.
+- **Reading `ces_prefs.xml` straight after a UI change is unreliable.** `apply()` writes asynchronously, so three consecutive reads returned three different values. `am force-stop` first, then read: that flushes and gives the true stored state. This wasted a lot of time in rounds 23 and 24 — see the testing notes.
+- versionCode 18 / versionName 2.6.1. The `V2.6` tag points at the commit *before* this fix.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

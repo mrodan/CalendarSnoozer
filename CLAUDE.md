@@ -385,6 +385,17 @@ Non-obvious testing facts:
 - **Never pipe `adb exec-out screencap -p` to a file in PowerShell** — the shell
   re-encodes the stream and prepends a BOM, producing an unreadable PNG. Use
   `adb shell screencap -p /sdcard/x.png` then `adb pull`.
+- **Force-stop before reading `ces_prefs.xml`, or the value is a lie.**
+  `SharedPreferences.apply()` writes asynchronously, so a read taken seconds
+  after a UI change can return the *previous* contents — three consecutive reads
+  returned three different values while chasing a phantom migration bug across
+  rounds 23 and 24. `adb shell am force-stop com.calendareventsnooze`, wait a
+  couple of seconds, then read.
+- **Never tap a control from coordinates in an older dump.** Expanding a card
+  moves everything below it, so a stale y-coordinate lands on whatever slid into
+  that spot — in round 24 that silently rewrote the user's day selection twice.
+  Dump, then tap, in that order; and for a switch, match the `checkable="true"`
+  node rather than guessing an x near the right edge.
 - Settings are readable straight from the device on a debug build:
   `adb shell run-as com.calendareventsnooze cat
   /data/data/com.calendareventsnooze/shared_prefs/ces_prefs.xml`. This is the

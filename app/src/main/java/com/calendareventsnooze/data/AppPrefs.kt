@@ -308,9 +308,16 @@ object AppPrefs {
 
             // A round 22 setting had one set of hours for the whole week; split
             // it across both groups so the times the user chose survive.
-            val legacyDays = stored.days?.toSet()
-            val legacyStart = stored.startMinute?.coerceIn(0, 24 * 60 - 1)
-            val legacyEnd = stored.endMinute?.coerceIn(0, 24 * 60 - 1)
+            //
+            // All three legacy fields stand or fall together, keyed on `days`.
+            // Reading them independently let a partial value produce a mongrel —
+            // legacy *times* applied to *default* days — which is how a phone
+            // ended up silencing weekends that had never been selected.
+            val isLegacy = stored.days != null
+            val legacyDays = if (isLegacy) stored.days?.toSet() else null
+            val legacyStart =
+                if (isLegacy) stored.startMinute?.coerceIn(0, 24 * 60 - 1) else null
+            val legacyEnd = if (isLegacy) stored.endMinute?.coerceIn(0, 24 * 60 - 1) else null
 
             SilentHours(
                 enabled = stored.enabled ?: default.enabled,
