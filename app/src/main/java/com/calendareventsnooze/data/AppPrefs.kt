@@ -292,6 +292,16 @@ object AppPrefs {
 
     fun getSilentHours(ctx: Context): SilentHours {
         val json = prefs(ctx).getString(KEY_SILENT_HOURS, null) ?: return SilentHours()
+        val migrated = readSilentHours(json)
+        // Round 24 — upgrade the stored shape as soon as it is read, rather than
+        // waiting for the user to edit something. Otherwise a round 22 value
+        // would be migrated in memory on every launch and never written back,
+        // and the split would look like it had silently lost the weekend half.
+        if (json.contains("\"days\"")) saveSilentHours(ctx, migrated)
+        return migrated
+    }
+
+    private fun readSilentHours(json: String): SilentHours {
         return try {
             val stored = gson.fromJson(json, SilentHoursJson::class.java) ?: return SilentHours()
             val default = SilentHours()

@@ -167,10 +167,17 @@ fun SettingsScreen() {
         CalendarAppsCard(refreshKey) { refreshKey++ }
 
         Spacer(Modifier.height(Spacing.lg))
+        SilentHoursCard(refreshKey)
 
-        // UI.30 — the same shape as the two cards below it: heading band with
-        // the status icon beside the title, and a body whose first row
-        // summarises what the section contains and doubles as the expander.
+        Spacer(Modifier.height(Spacing.lg))
+
+        // UI.30 — the same shape as the cards above it: heading band with the
+        // status icon beside the title, and a body whose first row summarises
+        // what the section contains and doubles as the expander.
+        //
+        // Round 24 — it sits last now. The two above it are settings the user
+        // changes; this one is a checklist they visit once and then only when
+        // something breaks.
         SectionCard(
             title = "Permissions",
             headerExtra = {
@@ -275,9 +282,6 @@ fun SettingsScreen() {
             }
         }
 
-        Spacer(Modifier.height(Spacing.lg))
-        SilentHoursCard(refreshKey)
-
         Spacer(Modifier.height(Spacing.xl))
     }
 }
@@ -314,7 +318,7 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
         onChanged()
     }
 
-    SectionCard("Calendar Apps") {
+    SectionCard("Calendar Apps to Snooze") {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -477,16 +481,23 @@ private fun SilentHoursCard(refreshKey: Int) {
                 .clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                if (!hours.enabled) "Off — every reminder is intercepted"
-                else listOfNotNull(
-                    windowSummary(context, "Weekdays", hours.weekdays),
-                    windowSummary(context, "Weekends", hours.weekends)
-                ).joinToString("\n").ifEmpty { "On, but no days are selected" },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.weight(1f))
+            // Round 24 — days on one line, times on the next, with no
+            // "Weekdays"/"Weekends" labels.
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (!hours.enabled) "Off — every reminder is intercepted"
+                    else summaryDays(hours).ifEmpty { "No days selected" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (hours.enabled && !hours.hasNoDays) {
+                    Text(
+                        summaryTimes(context, hours),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             Icon(
                 if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
                 contentDescription = if (expanded) "Collapse" else "Expand",
@@ -650,14 +661,35 @@ private fun SilentWindowGroup(
     }
 }
 
-/** "Weekdays 10:00 PM – 7:00 AM · Mon, Tue, Wed", or null when no days are on. */
-private fun windowSummary(context: Context, label: String, window: SilentWindow): String? {
-    if (window.days.isEmpty()) return null
-    val days = (SilentHours.WEEKDAY_ORDER + SilentHours.WEEKEND_ORDER)
-        .filter { it in window.days }
+/** Round 24 — every selected day, in week order, across both windows. */
+private fun summaryDays(hours: SilentHours): String =
+    (SilentHours.WEEKDAY_ORDER + SilentHours.WEEKEND_ORDER)
+        .filter { it in hours.weekdays.days || it in hours.weekends.days }
         .joinToString(", ") { SilentHours.shortName(it) }
-    return "$label ${formatMinuteOfDay(context, window.startMinute)} – " +
-        "${formatMinuteOfDay(context, window.endMinute)} · $days"
+
+/**
+ * Round 24 — the hours, with no group labels.
+ *
+ * When both halves run the same hours that is a single range. When they differ
+ * both are shown, weekday range first, matching the order the days are listed
+ * in above — without the labels there is nothing else to tie them together.
+ */
+private fun summaryTimes(context: Context, hours: SilentHours): String {
+    fun range(window: SilentWindow) =
+        "${formatMinuteOfDay(context, window.startMinute)} – " +
+            formatMinuteOfDay(context, window.endMinute)
+
+    val weekdayOn = hours.weekdays.days.isNotEmpty()
+    val weekendOn = hours.weekends.days.isNotEmpty()
+    val sameHours = hours.weekdays.startMinute == hours.weekends.startMinute &&
+        hours.weekdays.endMinute == hours.weekends.endMinute
+
+    return when {
+        weekdayOn && weekendOn && sameHours -> range(hours.weekdays)
+        weekdayOn && weekendOn -> "${range(hours.weekdays)}  ·  ${range(hours.weekends)}"
+        weekdayOn -> range(hours.weekdays)
+        else -> range(hours.weekends)
+    }
 }
 
 @Composable

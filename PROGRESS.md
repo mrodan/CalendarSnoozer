@@ -255,6 +255,16 @@ Prompted by wanting to share the APK with other people, on phones that are not P
 - **NOT verified — the split's persistence.** After the change the phone's `silent_hours` pref still held the *round 22* shape (`days`/`startMinute`/`endMinute`) rather than the new `weekdayDays`/`weekendDays` keys, and the card showed no Weekends line, which is what reading that shape would produce. `saveSilentHours` only writes the new mirror, so by inspection this should not happen; the phone was unplugged before it could be traced. **Next session: open Silent Hours & Days, change one day chip, then read `silent_hours` out of `ces_prefs.xml`.** If it still has `days`, the migration write path is broken and existing settings are being read but never rewritten.
 - versionCode 16 / versionName 2.5.
 
+## Round 24 — verified on the API 34 emulator
+- [x] The Silent Hours summary is two rows — days on the first, hours on the second — with no "Weekdays"/"Weekends" labels, and the expand chevron beside them.
+- **When the two halves run different hours, both ranges appear** (weekday first, matching the order the days are listed). Without the group labels there is nothing tying a range to its days, so this is only readable while the two are the same or obviously different. Worth revisiting if it proves confusing.
+- [x] OFF text is now "You still get your old Calendar notifications".
+- [x] Settings order is Calendar Apps to Snooze → Silent Hours & Days → Permissions. Permissions is a checklist visited once, not a setting that gets changed.
+- [x] "Calendar Apps" renamed "Calendar Apps to Snooze".
+- **Round 23's open question is resolved.** `saveSilentHours` writes the split schema correctly — proven on the emulator, which stored `{"enabled":true,"weekdayDays":[2,3,4,5,6],…,"weekendDays":[7,1],…}`. The phone reading that prompted the doubt was almost certainly a stale read of `ces_prefs.xml`: `apply()` writes asynchronously and the read followed the toggle by about a second. (It also explains the alphabetical key order seen there — Gson reflects over fields in ART's own order, not declaration order.)
+- [x] **Migrating now happens on read, not on next edit.** `getSilentHours` rewrites a round 22 value in the new shape the first time it sees one. Without that a legacy value would be migrated in memory on every launch and never written back, so the weekend half would look permanently empty — the exact symptom that was under investigation.
+- versionCode 17 / versionName 2.6, tagged `COMMIT_SNAPSHOT_APP_WORKING_V2.6`.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

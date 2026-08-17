@@ -88,7 +88,7 @@ private fun SnoozerStatusCard(refreshKey: Int) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(Spacing.md))
                 Text(
-                    "Calendar notifications will show as usual",
+                    "You still get your old Calendar notifications",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center
