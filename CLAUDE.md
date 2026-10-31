@@ -103,6 +103,26 @@ Two activity flags, easy to get wrong:
 If neither is set, `onDestroy` must **not** stop the service — that's the
 system destroying us (Home button, task swipe) and the alarm must survive.
 
+### The auto-dismiss countdown is managed, not fire-and-forget
+
+It is a `Runnable` the service holds, with its deadline — **not** an anonymous
+lambda on the shared `handler`, because the only way to cancel one of those is
+`removeCallbacksAndMessages(null)`, and that queue also carries the sound
+sequencing and per-output delays. Three things drive it:
+
+- **"Shhhh"** restarts it from full. It means "not yet", so letting the
+  remaining seconds expire and file the alarm as missed is the wrong answer.
+- **Opening a snooze picker** pauses it; closing one resumes from what was
+  left. Choosing a time takes longer than a 30-second countdown allows, and the
+  alarm used to resolve itself out from under the open dialog.
+- A countdown resumed with ~nothing left gets a second's grace, or Cancel would
+  look like it dismissed the alarm.
+
+`AlarmScreen`'s on-screen counter mirrors this: `secondsLeft` lives **outside**
+the `LaunchedEffect` that ticks it, so re-keying the effect pauses and continues
+the count. "Shhhh" has to reset the value *and* re-key, or a counter that had
+already reached zero would never tick again.
+
 ### Takeover can't be escaped (B.1)
 
 `AlarmActivity` re-launches itself to the front from **both**
@@ -283,6 +303,38 @@ badge and "All permissions are granted". Adding a genuinely required permission
 means adding it to the `pendingCount` list too; adding an optional one means
 *not* doing that.
 
+**21. A Compose wheel picker needs blank end rows, not `contentPadding`.**
+The usual recipe — a 3-row-tall `LazyColumn` with `contentPadding = vertical
+itemHeight` and `firstVisibleItemIndex` as the selection — looks right and is
+ambiguous: the padding counts as content in some of LazyColumn's measurements
+and not others, so which index is *centred* shifts by one depending on where
+the scroll happens to be. `NumberWheel` instead puts a blank row at each end
+and reads the centred item out of `layoutInfo` by distance from the viewport's
+midpoint. Then `scrollToItem(i)` puts list item `i` flush at the top, the
+middle row is list item `i + 1` — value `i` — and snapping lands on exactly
+those positions. `rememberSnapFlingBehavior` is still `@ExperimentalFoundationApi`
+on this Compose version, same as the pager (trap 8).
+
+**22. `POST_NOTIFICATIONS` is denied by default and fails silently.**
+Android 13+ drops any `notify()` from an app without it, with no exception and
+nothing in logcat. It was **off on the user's own Pixel**, which is how a
+missed-alarm notification could be "working" in code and invisible in life.
+It is in the Permissions card and in `pendingCount` because the feature it
+gates — telling the user an alarm was missed — is the one this app exists for.
+Note the foreground-service notification is unaffected, so the alarm itself
+still behaves normally; only the missed-alarm notification vanishes. Also note
+the request dialog stops appearing after two declines and the launcher then
+returns "denied" instantly, so the row falls through to app notification
+settings.
+
+**23. The takeover's portrait lock depends on targetSdk staying ≤ 35.**
+`android:screenOrientation="portrait"` on `AlarmActivity` is what stops
+auto-rotate turning the alarm on its side. From **targetSdk 36** Android
+ignores activity orientation locks on displays 600dp and wider — so raising
+targetSdk silently un-does this. Check `requestedOrientation` in
+`dumpsys activity activities` together with `ignoreOrientationRequest`; the
+manifest attribute alone no longer proves the behaviour.
+
 **18. `OutlinedTextField` cannot simply be made shorter.**
 Its decoration box reserves a fixed slice for the floating label and centres the
 input in what is left, so `Modifier.height(48.dp)` renders the *value* clipped
@@ -400,6 +452,11 @@ Non-obvious testing facts:
   `adb shell run-as com.calendareventsnooze cat
   /data/data/com.calendareventsnooze/shared_prefs/ces_prefs.xml`. This is the
   fastest way to prove auto-save and JSON migration actually worked.
+- **The user can be touching the phone while you drive it.** A Shhhh test once
+  ended with the takeover closed a second early and an unrelated missed alarm
+  gone from the list; an identical second run behaved correctly and nothing was
+  in the crash buffer. Before writing up an anomaly seen on *their* device, run
+  it again — and say plainly which of the two you are reporting.
 - The user's phone is often **locked** (screenshots come back black, and the PIN
   must never be attempted) — but they will unlock it on request for a debugging
   session, so ask rather than defaulting to the emulator. The emulator is a poor
