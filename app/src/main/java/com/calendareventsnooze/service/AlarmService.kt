@@ -13,6 +13,7 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.os.Vibrator
 import androidx.core.app.NotificationCompat
 import com.calendareventsnooze.R
@@ -52,16 +53,38 @@ class AlarmService : Service() {
 
         /**
          * F.16 — "Shhhh": silences sound and vibration but leaves the alarm
-         * itself running. The takeover stays up, the notification stays put and
-         * the auto-snooze countdown keeps ticking.
+         * itself running. The takeover stays up and the notification stays put.
+         *
+         * Round 26 — it now also restarts the auto-dismiss countdown. "Shhhh"
+         * means "not yet, give me a moment", and the old behaviour let the
+         * countdown run out seconds later and file the alarm as missed, which
+         * is the opposite of what the user just asked for.
          */
         const val ACTION_SILENCE = "com.calendareventsnooze.ACTION_SILENCE"
 
+        /**
+         * Round 26 — holds the auto-dismiss countdown while a snooze picker is
+         * open on the takeover, and lets it continue from where it stopped when
+         * the picker closes. Choosing a snooze time takes longer than the 30-
+         * or 60-second countdown allows, so without this the alarm resolved
+         * itself out from under the dialog.
+         */
+        const val ACTION_AUTO_DISMISS_PAUSE = "com.calendareventsnooze.ACTION_AD_PAUSE"
+        const val ACTION_AUTO_DISMISS_RESUME = "com.calendareventsnooze.ACTION_AD_RESUME"
+
         /** Silences the current alarm's output without resolving it (F.16). */
-        fun silenceAlarm(context: Context) {
+        fun silenceAlarm(context: Context) = send(context, ACTION_SILENCE)
+
+        /** Round 26 — freeze the auto-dismiss countdown (a picker is open). */
+        fun pauseAutoDismiss(context: Context) = send(context, ACTION_AUTO_DISMISS_PAUSE)
+
+        /** Round 26 — let it run on from where [pauseAutoDismiss] stopped it. */
+        fun resumeAutoDismiss(context: Context) = send(context, ACTION_AUTO_DISMISS_RESUME)
+
+        private fun send(context: Context, action: String) {
             runCatching {
                 context.startService(
-                    Intent(context, AlarmService::class.java).setAction(ACTION_SILENCE)
+                    Intent(context, AlarmService::class.java).setAction(action)
                 )
             }
         }
@@ -136,6 +159,24 @@ class AlarmService : Service() {
     /** F.16 — the user hit "Shhhh"; suppress output without ending the alarm. */
     private var silenced = false
 
+    // ------------------------------------------------------------------
+    // Auto-dismiss countdown state (round 26)
+    //
+    // It used to be an anonymous lambda posted to [handler], which could only be
+    // cancelled by clearing the whole queue — and that queue also carries the
+    // sequencing and per-output delays. Holding the Runnable means the countdown
+    // can be paused, resumed and restarted on its own.
+    // ------------------------------------------------------------------
+
+    private var autoDismissRunnable: Runnable? = null
+    /** elapsedRealtime at which the pending countdown fires. */
+    private var autoDismissDeadlineMs = 0L
+    /** Non-null only while paused: what was left when it stopped. */
+    private var autoDismissRemainingMs: Long? = null
+    /** What the countdown would act on — kept so it can be re-armed. */
+    private var autoDismissProfile: SoundProfile? = null
+    private var autoDismissEvent: AlarmEvent? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -148,12 +189,25 @@ class AlarmService : Service() {
                 return START_STICKY
             }
             ACTION_SILENCE -> {
-                // F.16 — deliberately does NOT touch the handler queue: the
-                // auto-snooze countdown must survive. `silenced` instead makes
-                // any pending delayed start (sequencing, per-output delay) a
-                // no-op when it fires.
+                // F.16 — deliberately does NOT clear the handler queue: it also
+                // carries the sequencing and per-output delays, and `silenced`
+                // is what makes those a no-op when they fire.
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
                 silenced = true
                 stopSoundAndVibration()
+                // Round 26 — "Shhhh" buys time, so give the user the full
+                // countdown again rather than the seconds that were left.
+                restartAutoDismiss()
+                return START_STICKY
+            }
+            ACTION_AUTO_DISMISS_PAUSE -> {
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+                pauseAutoDismissNow()
+                return START_STICKY
+            }
+            ACTION_AUTO_DISMISS_RESUME -> {
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+                resumeAutoDismissNow()
                 return START_STICKY
             }
             ACTION_REASSERT_NOTIFICATION -> {
@@ -225,12 +279,60 @@ class AlarmService : Service() {
         val profile = currentProfile()
         startAlarmOutput(profile)
 
-        if (profile.autoDismissSeconds > 0) {
-            handler.postDelayed(
-                { handleAutoDismiss(profile, alarmEvent) },
-                profile.autoDismissSeconds * 1000L
-            )
+        autoDismissProfile = profile
+        autoDismissEvent = alarmEvent
+        scheduleAutoDismiss(profile.autoDismissSeconds * 1000L)
+    }
+
+    // ------------------------------------------------------------------
+    // Auto-dismiss countdown (round 26)
+    // ------------------------------------------------------------------
+
+    /** Arms the countdown to fire in [delayMs]. Replaces any pending one. */
+    private fun scheduleAutoDismiss(delayMs: Long) {
+        cancelAutoDismiss()
+        val profile = autoDismissProfile ?: return
+        val alarmEvent = autoDismissEvent ?: return
+        if (profile.autoDismissSeconds <= 0 || delayMs <= 0L) return
+        val runnable = Runnable {
+            autoDismissRunnable = null
+            handleAutoDismiss(profile, alarmEvent)
         }
+        autoDismissRunnable = runnable
+        autoDismissDeadlineMs = SystemClock.elapsedRealtime() + delayMs
+        handler.postDelayed(runnable, delayMs)
+    }
+
+    /** Un-arms the countdown without forgetting which alarm it belonged to. */
+    private fun cancelAutoDismiss() {
+        autoDismissRunnable?.let { handler.removeCallbacks(it) }
+        autoDismissRunnable = null
+        autoDismissRemainingMs = null
+    }
+
+    /** Freezes the countdown with whatever time was left on it. */
+    private fun pauseAutoDismissNow() {
+        val runnable = autoDismissRunnable ?: return  // not armed, or already paused
+        handler.removeCallbacks(runnable)
+        autoDismissRunnable = null
+        autoDismissRemainingMs =
+            (autoDismissDeadlineMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+    }
+
+    /** Continues a paused countdown from where it stopped. */
+    private fun resumeAutoDismissNow() {
+        val remaining = autoDismissRemainingMs ?: return  // never paused
+        autoDismissRemainingMs = null
+        // A countdown paused with nothing left would fire the instant it
+        // resumed, which reads as the dialog's own Cancel dismissing the alarm.
+        // Give it a second's grace instead.
+        scheduleAutoDismiss(remaining.coerceAtLeast(1000L))
+    }
+
+    /** Puts the full countdown back on the clock ("Shhhh"). */
+    private fun restartAutoDismiss() {
+        val seconds = autoDismissProfile?.autoDismissSeconds ?: return
+        scheduleAutoDismiss(seconds * 1000L)
     }
 
     /**
@@ -252,6 +354,12 @@ class AlarmService : Service() {
     /** Silences audio/vibration and cancels any pending auto-dismiss. */
     private fun silenceCurrentOutput() {
         handler.removeCallbacksAndMessages(null)
+        // Clearing the queue already un-posted the countdown; forget the alarm
+        // it belonged to as well, or a later pause/resume could re-arm it for an
+        // alarm that has been resolved.
+        cancelAutoDismiss()
+        autoDismissProfile = null
+        autoDismissEvent = null
         stopSoundAndVibration()
     }
 

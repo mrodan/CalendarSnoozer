@@ -111,8 +111,20 @@ class AlarmActivity : ComponentActivity() {
                             },
                             onDismiss = { openCalendar -> performDismiss(event, openCalendar) },
                             // F.16 — silences output only; the alarm is untouched,
-                            // so no userActionTaken / resolveSent here.
+                            // so no userActionTaken / resolveSent here. Round 26:
+                            // the service also puts the auto-dismiss countdown
+                            // back to full when it handles this.
                             onQuiet = { AlarmService.silenceAlarm(applicationContext) },
+                            // Round 26 — a snooze picker is open, so hold the
+                            // service's countdown until it closes. Without this
+                            // the alarm resolves itself out from under the
+                            // dialog the user is still filling in.
+                            onAutoDismissPause = {
+                                AlarmService.pauseAutoDismiss(applicationContext)
+                            },
+                            onAutoDismissResume = {
+                                AlarmService.resumeAutoDismiss(applicationContext)
+                            },
                             // The AlarmService owns auto-dismiss; it resolves the alarm
                             // and either closes this screen or shows the next one.
                             onAutoDismissTimeout = { }

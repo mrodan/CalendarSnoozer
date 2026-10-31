@@ -81,6 +81,10 @@ fun AlarmScreen(
     onSnooze: (scheduledTimeMs: Long, openCalendar: Boolean) -> Unit,
     onDismiss: (openCalendar: Boolean) -> Unit,
     onQuiet: () -> Unit,
+    // Round 26 — the service owns the real countdown; these keep its clock and
+    // the one on screen telling the same story while a picker is open.
+    onAutoDismissPause: () -> Unit,
+    onAutoDismissResume: () -> Unit,
     onAutoDismissTimeout: () -> Unit
 ) {
     // UI.29 — which of the two takeover styles the user picked. Provided by
@@ -96,8 +100,22 @@ fun AlarmScreen(
 
     // Countdown restarts whenever a different alarm takes over the screen.
     var secondsLeft by remember(alarmEvent.alarmId) { mutableIntStateOf(autoDismissSeconds) }
-    LaunchedEffect(alarmEvent.alarmId) {
-        if (autoDismissSeconds <= 0) return@LaunchedEffect
+
+    // Round 26 — picking a snooze time takes longer than the countdown allows,
+    // so it stops while either picker is open and carries on from there after.
+    val pickerOpen = showSpecifyTime || showTimeAndDate
+    LaunchedEffect(pickerOpen) {
+        if (pickerOpen) onAutoDismissPause() else onAutoDismissResume()
+    }
+
+    // `secondsLeft` lives outside the effect, so cancelling and restarting the
+    // effect pauses and continues the count rather than restarting it.
+    // `restarts` is how "Shhhh" asks for the full countdown back — it has to
+    // re-key the effect as well as reset the value, or a countdown that had
+    // already run out would never start ticking again.
+    var restarts by remember(alarmEvent.alarmId) { mutableIntStateOf(0) }
+    LaunchedEffect(alarmEvent.alarmId, pickerOpen, restarts) {
+        if (autoDismissSeconds <= 0 || pickerOpen) return@LaunchedEffect
         while (secondsLeft > 0) {
             delay(1000L)
             secondsLeft--
@@ -280,7 +298,11 @@ fun AlarmScreen(
             horizontalArrangement = Arrangement.Center
         ) {
             OutlinedButton(
-                onClick = onQuiet,
+                // Round 26 — "Shhhh" means "not yet", so it puts the full
+                // countdown back rather than letting the remaining seconds run
+                // out and file the alarm as missed. The service restarts its own
+                // copy when it handles the silence.
+                onClick = { secondsLeft = autoDismissSeconds; restarts++; onQuiet() },
                 modifier = Modifier
                     .fillMaxWidth(1f / 3f)
                     .height(56.dp),
