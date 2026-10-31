@@ -78,6 +78,24 @@ AppPrefs (SharedPreferences + Gson) — all persistence
 - Sound settings are per **ringer mode** (SOUND_ON / VIBRATE / SILENT); the
   service picks the profile matching the phone's current ringer state.
 
+### What the listener accepts (round 27)
+
+`CalendarNotificationListener` is not "every notification from a watched
+package" any more. In order: the package must be watched, the master switch on,
+and the time outside Silent Hours; then the notification must not be a group
+summary or an ongoing one, must have been posted within the last two minutes
+(trap 26), must have a title or text, and must not repeat one already alarmed.
+Only then is the account filter consulted. Every rejection is written to a
+rolling log in preferences — no UI, read it with `adb shell run-as
+com.calendareventsnooze cat .../ces_prefs.xml` when a ghost alarm is reported.
+
+Account filtering **fails open at every step**. A notification carries no event
+id (trap 3), so the event is matched by title and time through
+`CalendarEvents.resolve` and its calendar gives the account; no permission, no
+match, or an unreadable calendar all mean "let the alarm through". Suppressing
+an alarm on a guess is the one outcome worth avoiding, and the Settings card
+tells the user this rather than implying a guarantee.
+
 ### The alarm stack (B.6) — the most important invariant
 
 `AlarmService` holds a **stack** of ringing alarms. A newly triggered alarm
@@ -302,6 +320,51 @@ deliberately excluded from `pendingCount` and therefore from both the nav-bar
 badge and "All permissions are granted". Adding a genuinely required permission
 means adding it to the `pendingCount` list too; adding an optional one means
 *not* doing that.
+
+**24. `AudioManager.getRingerMode()` lies while Do Not Disturb is on.**
+Android keeps two ringer modes: the *internal* one the user set, and the
+*external* one apps are told. DND forces the external one to SILENT and leaves
+the internal one alone — so `getRingerMode()` reports SILENT on a phone set to
+Sound, and the app picked the Silent profile for every alarm, permanently, for
+anyone on a DND schedule. `getRingerModeInternal()` is the right API and is not
+public, so `util/RingerModes.kt` reads the setting `AudioService` persists the
+internal mode to and falls back to `getRingerMode()`. Confirm with
+`adb shell dumpsys audio | grep -A3 "^Ringer mode:"`, which prints both:
+
+    - mode (internal) = NORMAL
+    - mode (external) = SILENT
+
+Alarms are deliberately **not** silenced by DND; quiet hours are the app's own
+Silent Hours & Days.
+
+**25. Notification extras are CharSequences; `getString` returns null for them.**
+`Bundle.getString("android.title")` returns null whenever the value is a
+CharSequence that is not a String, and notification titles are routinely
+SpannableStrings. That is how real calendar reminders became "ghost alarms":
+the event was genuine, the title simply never arrived, and the takeover came up
+blank. Always `getCharSequence(key)?.toString()`.
+
+**26. `onNotificationPosted` replays everything in the shade on every bind.**
+It is not only called for new notifications: when the listener binds it is
+delivered the notifications already on screen. It binds often — reboot, app
+update, Android reclaiming it, and trap-19's `requestRebind`. Calendar reminders
+sit in the shade until dismissed, so a replay raises alarms for events hours
+old, at exactly the round hours meetings start. The listener therefore ignores
+anything whose `postTime` is more than two minutes ago, along with group
+summaries, ongoing notifications, contentless ones, and in-place updates of a
+notification already alarmed.
+
+**27. Channel importance draws the heads-up banner, not the full-screen intent.**
+A notification announcing the alarm appeared *over* the takeover. Dropping its
+full-screen intent was measured and **did not** help: IMPORTANCE_HIGH alone is
+enough. A foreground service must post something, so the ringing-alarm
+notification lives on an IMPORTANCE_LOW channel (`ces_alarm_ongoing`) and the
+full-screen intent moved to a second notification on the HIGH channel, posted
+only when the takeover has failed to reach the screen within 1.5s. B.6 is
+unaffected on the low channel — importance governs the banner, not
+dismissibility, so ongoing, `FLAG_NO_CLEAR` and the re-assert delete intent all
+still work. A channel's importance cannot be changed after it is created, which
+is why this is a new channel id rather than an edit to the old one.
 
 **21. A Compose wheel picker needs blank end rows, not `contentPadding`.**
 The usual recipe — a 3-row-tall `LazyColumn` with `contentPadding = vertical
