@@ -179,8 +179,21 @@ class AlarmActivity : ComponentActivity() {
      * recents did not). `onStop` fires whichever way the activity is backgrounded,
      * so it is the reliable backstop.
      */
+    /**
+     * Round 27 — tells the service the alarm is on screen, so its notification
+     * can drop the full-screen intent and stop drawing a heads-up banner over
+     * the takeover the user is already looking at.
+     */
+    override fun onStart() {
+        super.onStart()
+        AlarmService.takeoverShown(applicationContext)
+    }
+
     override fun onStop() {
         super.onStop()
+        // The service re-arms the full-screen intent shortly after this, unless
+        // the relaunch below puts us back first.
+        AlarmService.takeoverGone(applicationContext)
         reassertTakeover()
     }
 

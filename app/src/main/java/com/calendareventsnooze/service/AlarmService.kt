@@ -72,6 +72,26 @@ class AlarmService : Service() {
         const val ACTION_AUTO_DISMISS_PAUSE = "com.calendareventsnooze.ACTION_AD_PAUSE"
         const val ACTION_AUTO_DISMISS_RESUME = "com.calendareventsnooze.ACTION_AD_RESUME"
 
+        /**
+         * Round 27 — the takeover tells the service when it is on screen, so
+         * the notification can stop announcing an alarm the user is already
+         * looking at. See [fullScreenEscalated].
+         */
+        const val ACTION_TAKEOVER_SHOWN = "com.calendareventsnooze.ACTION_TAKEOVER_SHOWN"
+        const val ACTION_TAKEOVER_GONE = "com.calendareventsnooze.ACTION_TAKEOVER_GONE"
+
+        /**
+         * How long the takeover gets to appear before the notification falls
+         * back to a full-screen intent. Long enough that a normal launch — or
+         * B.1's relaunch after a Home press — wins the race and no banner is
+         * ever drawn; short enough to be unnoticeable when the launch really
+         * was blocked and the intent is the only way onto the screen.
+         */
+        private const val FULL_SCREEN_ESCALATION_MS = 1500L
+
+        fun takeoverShown(context: Context) = send(context, ACTION_TAKEOVER_SHOWN)
+        fun takeoverGone(context: Context) = send(context, ACTION_TAKEOVER_GONE)
+
         /** Silences the current alarm's output without resolving it (F.16). */
         fun silenceAlarm(context: Context) = send(context, ACTION_SILENCE)
 
@@ -104,12 +124,20 @@ class AlarmService : Service() {
         const val EXTRA_ALARM_ID = "ces_resolved_alarm_id"
         const val ACTIVE_ALARM_NOTIF_ID = 1002
 
+        /** Round 27 — the escalation alert; see [buildFullScreenAlert]. */
+        const val FULL_SCREEN_ALERT_ID = 1003
+
         /** Volume steps per second while fading in (F.10). */
         private const val FADE_STEPS_PER_SECOND = 10
 
         fun cancelActiveAlarmNotification(context: Context) {
-            context.getSystemService(NotificationManager::class.java)
-                .cancel(ACTIVE_ALARM_NOTIF_ID)
+            context.getSystemService(NotificationManager::class.java).apply {
+                cancel(ACTIVE_ALARM_NOTIF_ID)
+                // Round 27 — the escalation alert outlives the service if it is
+                // not cleared here; it is a plain notification, not the
+                // foreground one, so stopForeground does not take it.
+                cancel(FULL_SCREEN_ALERT_ID)
+            }
         }
 
         /** The user acted on [alarmId]; hand control back to any alarm beneath it. */
@@ -177,6 +205,30 @@ class AlarmService : Service() {
     private var autoDismissProfile: SoundProfile? = null
     private var autoDismissEvent: AlarmEvent? = null
 
+    // ------------------------------------------------------------------
+    // Getting the takeover on screen without announcing it twice (round 27)
+    // ------------------------------------------------------------------
+
+    /** True while AlarmActivity reports itself started. */
+    private var takeoverVisible = false
+
+    /**
+     * Whether the notification currently carries a full-screen intent.
+     *
+     * The intent is what the heads-up banner is made of. A foreground service
+     * must post *some* notification, and this one must stay IMPORTANCE_HIGH so
+     * the intent can fire — but a silent high-importance notification with no
+     * full-screen intent does not produce a banner, so the banner can be
+     * removed without weakening anything by attaching the intent only when it
+     * is actually needed: when the takeover is **not** already on screen.
+     *
+     * Every caller launches AlarmActivity directly in the same breath as
+     * starting the service, so the normal path never needs it. It is the
+     * backstop for a launch the system refused.
+     */
+    private var fullScreenEscalated = false
+    private var escalationRunnable: Runnable? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -208,6 +260,20 @@ class AlarmService : Service() {
             ACTION_AUTO_DISMISS_RESUME -> {
                 if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
                 resumeAutoDismissNow()
+                return START_STICKY
+            }
+            ACTION_TAKEOVER_SHOWN -> {
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+                takeoverVisible = true
+                // Also takes down the alert if the escalation had already
+                // posted one — the user is looking at the takeover now.
+                cancelFullScreenEscalation()
+                return START_STICKY
+            }
+            ACTION_TAKEOVER_GONE -> {
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+                takeoverVisible = false
+                scheduleFullScreenEscalation()
                 return START_STICKY
             }
             ACTION_REASSERT_NOTIFICATION -> {
@@ -276,12 +342,73 @@ class AlarmService : Service() {
             }
         }
 
+        // Round 27 — a fresh alarm needs no full-screen intent, because the
+        // caller has just launched the takeover itself. If it does not appear,
+        // the escalation posts one. An alarm interrupting one already on screen
+        // (B.6) needs no escalation at all.
+        if (takeoverVisible) cancelFullScreenEscalation() else scheduleFullScreenEscalation()
+
         val profile = currentProfile()
         startAlarmOutput(profile)
 
         autoDismissProfile = profile
         autoDismissEvent = alarmEvent
         scheduleAutoDismiss(profile.autoDismissSeconds * 1000L)
+    }
+
+    /**
+     * Arms the fallback: if the takeover has not appeared shortly, post the
+     * full-screen-intent notification so the alarm still reaches the screen.
+     */
+    private fun scheduleFullScreenEscalation() {
+        cancelFullScreenEscalation()
+        val runnable = Runnable {
+            escalationRunnable = null
+            val top = alarmStack.lastOrNull()
+            if (takeoverVisible || top == null) return@Runnable
+            fullScreenEscalated = true
+            runCatching {
+                getSystemService(NotificationManager::class.java)
+                    .notify(FULL_SCREEN_ALERT_ID, buildFullScreenAlert(top))
+            }
+        }
+        escalationRunnable = runnable
+        handler.postDelayed(runnable, FULL_SCREEN_ESCALATION_MS)
+    }
+
+    /** Un-arms the fallback and takes down the alert if it was posted. */
+    private fun cancelFullScreenEscalation() {
+        escalationRunnable?.let { handler.removeCallbacks(it) }
+        escalationRunnable = null
+        if (fullScreenEscalated) {
+            fullScreenEscalated = false
+            runCatching {
+                getSystemService(NotificationManager::class.java)
+                    .cancel(FULL_SCREEN_ALERT_ID)
+            }
+        }
+    }
+
+    /**
+     * The one notification that is allowed to interrupt: it exists only when
+     * the takeover could not get on screen by itself, and a full-screen intent
+     * needs a high-importance channel to fire. It is cancelled the moment the
+     * takeover reports in, so in the normal case it is never posted at all.
+     */
+    private fun buildFullScreenAlert(alarmEvent: AlarmEvent): Notification {
+        val pi = alarmPendingIntent(alarmEvent)
+        return NotificationCompat.Builder(this, "ces_alarm_active")
+            .setContentTitle("⚠ Calendar Alarm Active")
+            .setContentText(alarmEvent.eventTitle.ifBlank { "Tap to open the alarm" })
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentIntent(pi)
+            .setFullScreenIntent(pi, true)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
     }
 
     // ------------------------------------------------------------------
@@ -360,6 +487,7 @@ class AlarmService : Service() {
         cancelAutoDismiss()
         autoDismissProfile = null
         autoDismissEvent = null
+        cancelFullScreenEscalation()
         stopSoundAndVibration()
     }
 
@@ -444,13 +572,18 @@ class AlarmService : Service() {
         val waiting = alarmStack.size - 1
         val subText = if (waiting > 0) "+$waiting more alarm${if (waiting > 1) "s" else ""} waiting"
                       else null
-        val notification = NotificationCompat.Builder(this, "ces_alarm_active")
+        // Round 27 — the low-importance channel, and no full-screen intent. Both
+        // are needed: a high-importance notification raises a heads-up banner
+        // over the takeover whether or not it carries an intent (measured — a
+        // build that only dropped the intent still banner-ed). The full-screen
+        // intent now lives on its own notification, posted only when the
+        // takeover has failed to appear. See [fullScreenEscalated].
+        val notification = NotificationCompat.Builder(this, "ces_alarm_ongoing")
             .setContentTitle("⚠ Calendar Alarm Active")
             .setContentText(alarmEvent.eventTitle.ifBlank { "Tap to open the alarm" })
             .setSubText(subText)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentIntent(pi)
-            .setFullScreenIntent(pi, true)
             .setOngoing(true)
             .setAutoCancel(false)
             .setDeleteIntent(reassertPendingIntent())
@@ -459,7 +592,9 @@ class AlarmService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
-        // B.6 — three layers, because none of them is sufficient alone:
+        // B.6 — three layers, because none of them is sufficient alone (round 27:
+        // these still hold on the low-importance channel; importance governs the
+        // banner, not dismissibility):
         // ongoing hides the swipe affordance, NO_CLEAR survives "Clear all", and
         // the delete intent re-posts if the system lets it through anyway
         // (Android 13+ allows dismissing foreground-service notifications).
