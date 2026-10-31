@@ -21,7 +21,6 @@ import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.MissedAlarmRecord
-import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.scheduler.AlarmScheduler
@@ -29,6 +28,7 @@ import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.ui.MainActivity
 import com.calendareventsnooze.util.formatEventTime
 import com.calendareventsnooze.util.getAlarmEvent
+import com.calendareventsnooze.util.RingerModes
 import com.calendareventsnooze.util.play
 import com.calendareventsnooze.util.putAlarmEvent
 import com.calendareventsnooze.util.vibratorOf
@@ -407,15 +407,8 @@ class AlarmService : Service() {
         }
     }
 
-    private fun currentProfile(): SoundProfile {
-        val audioManager = getSystemService(AudioManager::class.java)
-        val ringerMode = when (audioManager.ringerMode) {
-            AudioManager.RINGER_MODE_NORMAL  -> RingerMode.SOUND_ON
-            AudioManager.RINGER_MODE_VIBRATE -> RingerMode.VIBRATE
-            else                             -> RingerMode.SILENT
-        }
-        return AppPrefs.getSoundProfile(applicationContext, ringerMode)
-    }
+    private fun currentProfile(): SoundProfile =
+        AppPrefs.getSoundProfile(applicationContext, RingerModes.current(applicationContext))
 
     // ------------------------------------------------------------------
     // Notification

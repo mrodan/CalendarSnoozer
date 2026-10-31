@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -27,7 +26,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
-import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.service.AlarmService
@@ -36,6 +34,7 @@ import com.calendareventsnooze.ui.theme.CalendarEventSnoozeTheme
 import com.calendareventsnooze.ui.theme.LocalAlarmPalette
 import com.calendareventsnooze.ui.theme.paletteFor
 import com.calendareventsnooze.util.CalendarLauncher
+import com.calendareventsnooze.util.RingerModes
 import com.calendareventsnooze.util.getAlarmEvent
 import com.calendareventsnooze.util.putAlarmEvent
 
@@ -226,15 +225,10 @@ class AlarmActivity : ComponentActivity() {
         // notification brings the user back.
     }
 
-    private fun currentAutoDismissSeconds(): Int {
-        val audioManager = getSystemService(AudioManager::class.java)
-        val ringerMode = when (audioManager.ringerMode) {
-            AudioManager.RINGER_MODE_NORMAL  -> RingerMode.SOUND_ON
-            AudioManager.RINGER_MODE_VIBRATE -> RingerMode.VIBRATE
-            else                             -> RingerMode.SILENT
-        }
-        return AppPrefs.getSoundProfile(applicationContext, ringerMode).autoDismissSeconds
-    }
+    private fun currentAutoDismissSeconds(): Int =
+        AppPrefs.getSoundProfile(
+            applicationContext, RingerModes.current(applicationContext)
+        ).autoDismissSeconds
 
     /**
      * Hands the alarm back to the service. The service decides what happens to
