@@ -75,7 +75,7 @@ import java.util.Calendar
 import kotlin.math.sqrt
 
 /**
- * The five things the app cannot work without. Grouped so the nav bar's badge
+ * The six things the app cannot work without. Grouped so the nav bar's badge
  * and the Permissions card can't disagree about how many are outstanding.
  */
 data class PermissionsStatus(
@@ -84,6 +84,15 @@ data class PermissionsStatus(
     val exactAlarm: Boolean = false,
     val readCalendar: Boolean = false,
     val fullScreenIntent: Boolean = false,
+    /**
+     * Round 26 — Android 13+ requires this to post anything, and it is denied
+     * by default. Without it the missed-alarm notification is dropped silently:
+     * the alarm is filed in the Missed list and nothing on the phone says so.
+     * Found on the Pixel, where it was off. Required, not optional — a missed
+     * alarm the user is never told about is the failure this app exists to
+     * prevent. Always true below API 33, where there was no such permission.
+     */
+    val postNotifications: Boolean = false,
     /**
      * Round 20 — recommended, not required: the app works without it, it just
      * becomes less reliable on phones that sleep background apps. Deliberately
@@ -94,7 +103,8 @@ data class PermissionsStatus(
 ) {
     val pendingCount: Int
         get() = listOf(
-            notificationAccess, overlay, exactAlarm, readCalendar, fullScreenIntent
+            notificationAccess, overlay, exactAlarm, readCalendar, fullScreenIntent,
+            postNotifications
         ).count { !it }
 
     val allGranted: Boolean get() = pendingCount == 0
@@ -107,8 +117,31 @@ fun readPermissions(context: Context) = PermissionsStatus(
     readCalendar = ContextCompat.checkSelfPermission(
         context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED,
     fullScreenIntent = canUseFullScreenIntent(context),
+    postNotifications = canPostNotifications(context),
     batteryUnrestricted = isBatteryUnrestricted(context)
 )
+
+/** Android 13+ only; before that, posting needed no permission. */
+private fun canPostNotifications(context: Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(
+            context, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+
+/**
+ * The system dialog, but only while Android will still show it — it stops
+ * appearing once the user has declined twice, and the launcher then returns
+ * "denied" without anything happening on screen. Falling through to the app's
+ * own notification settings means the row always leads somewhere.
+ */
+private fun openNotificationSettings(context: Context) {
+    runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
 
 /**
  * True when Android has been told to stop putting the app to sleep. Optional,
@@ -150,6 +183,16 @@ fun SettingsScreen() {
     val calendarPermLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { refreshKey++ }
+
+    // Round 26 — if the dialog no longer appears (declined twice), send the
+    // user to the app's notification settings rather than leaving the row
+    // looking broken.
+    val notificationPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        refreshKey++
+        if (!granted) openNotificationSettings(context)
+    }
 
     var permissionsExpanded by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
@@ -266,6 +309,20 @@ fun SettingsScreen() {
                         granted = status.fullScreenIntent
                     ) {
                         openFullScreenIntentSettings(context)
+                    }
+                    // Round 26 — denied by default on Android 13+, which drops
+                    // the missed-alarm notification with no symptom at all.
+                    PermissionRow(
+                        name = "Notifications",
+                        description = "Required to tell you about a missed alarm",
+                        granted = status.postNotifications
+                    ) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notificationPermLauncher
+                                .launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            openNotificationSettings(context)
+                        }
                     }
                     // Optional — see PermissionsStatus.batteryUnrestricted. It
                     // never counts towards the badge or the pending total.
