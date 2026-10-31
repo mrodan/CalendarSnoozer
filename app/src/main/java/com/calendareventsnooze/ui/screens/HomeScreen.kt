@@ -167,7 +167,8 @@ fun HomeScreen() {
         SectionCard(title = "Snoozed Alarms") {
             SnoozedAlarmsSection(
                 alarms = alarms,
-                onManage = { managing = it; managingIsMissed = false }
+                onManage = { managing = it; managingIsMissed = false },
+                onRemoved = { refreshKey++ }
             )
         }
 
@@ -177,6 +178,7 @@ fun HomeScreen() {
         SectionCard(title = "Missed Alarms") {
             MissedAlarmsSection(
                 alarms = missedAlarms,
+                onRemoved = { refreshKey++ },
                 onManage = { missed ->
                     // A missed alarm has no firing time; the sheet shows the
                     // event's own time instead, so seed scheduledTimeMs with it.
