@@ -71,6 +71,7 @@ import com.calendareventsnooze.ui.components.OnResumeRefresh
 import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.CalendarApps
+import com.calendareventsnooze.util.CalendarEvents
 import java.util.Calendar
 import kotlin.math.sqrt
 
@@ -359,6 +360,12 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
     var selected by remember(refreshKey) {
         mutableStateOf(AppPrefs.getCalendarPackages(context))
     }
+    // Round 27 — read once per refresh: the provider query is cheap but not
+    // free, and the list must not reshuffle while the card is open.
+    val accounts = remember(refreshKey) { CalendarEvents.accounts(context) }
+    var ignoredAccounts by remember(refreshKey) {
+        mutableStateOf(AppPrefs.getIgnoredCalendarAccounts(context))
+    }
     var expanded by remember { mutableStateOf(false) }
     // Round 21 — turning on a mixed-use app is confirmed, because the
     // consequence (every email from it becomes a full-screen alarm) is not
@@ -434,6 +441,24 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
                         if (needsConfirming) confirming = entry
                         else setWatched(entry.packageName, checked)
                     }
+
+                    // Round 27 — the accounts behind Google Calendar, nested
+                    // under it and only while it is being watched. The calendar
+                    // provider is not partitioned by app, so this is attached to
+                    // the one app that syncs these accounts rather than repeated
+                    // under every calendar in the list.
+                    if (entry.packageName == CalendarApps.GOOGLE_CALENDAR &&
+                        entry.packageName in selected
+                    ) {
+                        CalendarAccountList(
+                            accounts = accounts,
+                            ignored = ignoredAccounts,
+                            onChanged = { account, watched ->
+                                AppPrefs.setCalendarAccountWatched(context, account, watched)
+                                ignoredAccounts = AppPrefs.getIgnoredCalendarAccounts(context)
+                            }
+                        )
+                    }
                 }
 
                 missing.forEach { pkg ->
@@ -469,6 +494,76 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
             dismissButton = {
                 TextButton(onClick = { confirming = null }) { Text("Cancel") }
             }
+        )
+    }
+}
+
+/**
+ * Round 27 — which accounts' events raise an alarm, nested under Google
+ * Calendar.
+ *
+ * Attribution is best-effort and the app says so: a reminder is matched back to
+ * its event by title (trap 3 — the notification carries no event id), and when
+ * that fails the alarm goes ahead regardless. Switching an account off is
+ * therefore "stop alarming for this account's events", not a guarantee of
+ * silence, and the caption says exactly that rather than letting the user infer
+ * a promise the provider cannot keep.
+ */
+@Composable
+private fun CalendarAccountList(
+    accounts: List<CalendarEvents.Account>,
+    ignored: Set<String>,
+    onChanged: (account: String, watched: Boolean) -> Unit
+) {
+    if (accounts.isEmpty()) {
+        Text(
+            "No calendar accounts readable yet — grant Read Calendar below.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = Spacing.xl, bottom = Spacing.sm)
+        )
+        return
+    }
+
+    val allOff = accounts.all { it.name in ignored }
+
+    Column(Modifier.padding(start = Spacing.xl)) {
+        accounts.forEach { account ->
+            val watched = account.name !in ignored
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onChanged(account.name, !watched) }
+                    .padding(vertical = Spacing.xs),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(account.name, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        account.calendarNames.size.let {
+                            if (it == 1) "1 calendar" else "$it calendars"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.size(Spacing.sm))
+                Switch(
+                    checked = watched,
+                    onCheckedChange = { onChanged(account.name, it) }
+                )
+            }
+        }
+
+        Text(
+            if (allOff) "Every account is switched off, so no reminder from " +
+                "Google Calendar will raise an alarm."
+            else "A reminder is matched to its event by name. If it cannot be " +
+                "matched, the alarm still rings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (allOff) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.sm)
         )
     }
 }

@@ -32,6 +32,7 @@ object AppPrefs {
     private const val KEY_LAST_SEEN_AT = "last_seen_at"
     private const val KEY_SEEN_NOTIFICATIONS = "seen_notifications"
     private const val KEY_INTERCEPTION_LOG = "interception_log"
+    private const val KEY_IGNORED_CALENDAR_ACCOUNTS = "ignored_calendar_accounts"
 
     /** How long an identical notification counts as a repeat (round 27). */
     private const val SEEN_RETENTION_MS = 30L * 60 * 1000
@@ -449,6 +450,32 @@ object AppPrefs {
             gson.fromJson<List<String>>(json, type) ?: emptyList()
         }.getOrDefault(emptyList())
     }
+
+    // ---------------------------------------------------------------------
+    // Round 27 — which calendar accounts are watched
+    // ---------------------------------------------------------------------
+
+    /**
+     * Accounts the user has switched **off**, stored as the exclusions rather
+     * than the inclusions on purpose.
+     *
+     * An existing install has no value here, and a phone that gains a second
+     * Google account later has no value for it either. Storing the watched set
+     * would make both of those mean "watch nothing", silently; storing the
+     * ignored set makes them mean "watch everything", which is what the app did
+     * before and the safe answer for an alarm.
+     */
+    fun getIgnoredCalendarAccounts(ctx: Context): Set<String> =
+        prefs(ctx).getStringSet(KEY_IGNORED_CALENDAR_ACCOUNTS, emptySet()) ?: emptySet()
+
+    fun setCalendarAccountWatched(ctx: Context, accountName: String, watched: Boolean) {
+        val ignored = getIgnoredCalendarAccounts(ctx).toMutableSet()
+        if (watched) ignored.remove(accountName) else ignored.add(accountName)
+        prefs(ctx).edit()
+            .putStringSet(KEY_IGNORED_CALENDAR_ACCOUNTS, ignored)
+            .apply()
+    }
+
     // ---------------------------------------------------------------------
     // Alarm screen style (UI.29)
     // ---------------------------------------------------------------------

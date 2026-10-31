@@ -9,6 +9,7 @@ import android.service.notification.StatusBarNotification
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.ui.AlarmActivity
+import com.calendareventsnooze.util.CalendarEvents
 import com.calendareventsnooze.util.putAlarmEvent
 
 class CalendarNotificationListener : NotificationListenerService() {
@@ -113,6 +114,15 @@ class CalendarNotificationListener : NotificationListenerService() {
         if (!AppPrefs.claimNotification(applicationContext, fingerprint)) {
             return skip("skipped: repeat of one already alarmed")
         }
+
+        // Round 27 — the account filter. Which account an event belongs to has
+        // to be looked up, because the notification does not say; when it
+        // cannot be resolved the alarm goes ahead, since a missed reminder is
+        // worse than one the user did not strictly need.
+        if (isIgnoredAccount(title, eventTimeMs)) {
+            return skip("skipped: ignored account")
+        }
+
         // Recorded before anything can fail, so the diagnostic line on Home
         // still answers "did a reminder reach us?" even if the alarm misfires.
         AppPrefs.recordInterception(applicationContext, pkg)
@@ -134,6 +144,25 @@ class CalendarNotificationListener : NotificationListenerService() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }.putAlarmEvent(alarmEvent)
         applicationContext.startActivity(activityIntent)
+    }
+
+    /**
+     * True only when the event behind this reminder is **known** to belong to an
+     * account the user switched off.
+     *
+     * Deliberately fails open at every step: no accounts switched off, no
+     * calendar permission, no matching event, or an event on a calendar whose
+     * account cannot be read all mean "let the alarm through". Suppressing an
+     * alarm on a guess is the one outcome worth avoiding.
+     */
+    private fun isIgnoredAccount(title: String, eventTimeMs: Long): Boolean {
+        val ignored = AppPrefs.getIgnoredCalendarAccounts(applicationContext)
+        if (ignored.isEmpty()) return false
+        val hit = CalendarEvents.resolve(applicationContext, title, eventTimeMs)
+            ?: return false
+        val account = CalendarEvents.accountForCalendar(applicationContext, hit.calendarId)
+            ?: return false
+        return account in ignored
     }
 }
 

@@ -17,6 +17,9 @@ import android.content.pm.PackageManager
  */
 object CalendarApps {
 
+    /** Round 27 — the one app whose accounts the Settings card lets you pick. */
+    const val GOOGLE_CALENDAR = "com.google.android.calendar"
+
     /**
      * Packages known to post calendar reminders. Anything here that is also
      * installed shows up in the Settings picker.

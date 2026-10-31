@@ -1,12 +1,9 @@
 package com.calendareventsnooze.util
 
-import android.Manifest
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.provider.CalendarContract
-import androidx.core.content.ContextCompat
 
 /**
  * Opens the real calendar event behind an alarm.
@@ -30,8 +27,14 @@ object CalendarLauncher {
     private val CALENDAR_PACKAGES: List<String>
         get() = CalendarApps.KNOWN.keys.filter { CalendarApps.isDedicatedCalendar(it) }
 
-    /** A concrete calendar event instance resolved from the calendar provider. */
-    private data class CalendarHit(val eventId: Long, val begin: Long, val end: Long)
+    /**
+     * Round 27 — the provider lookup moved to [CalendarEvents] so the account
+     * filter could use it without writing a second matcher. Trap 3's reasoning
+     * moved with it; traps 4's (never launch an unknown package) stays here.
+     */
+    private fun hitFor(context: Context, eventId: Long, title: String, timeMs: Long) =
+        if (eventId > 0L) CalendarEvents.Hit(eventId, timeMs, timeMs, 0L)
+        else CalendarEvents.resolve(context, title, timeMs)
 
     /**
      * Opens [eventTitle]'s calendar entry, never an app chooser.
@@ -49,8 +52,7 @@ object CalendarLauncher {
         }
 
         // 1. The specific event — from the notification, or looked up in the provider.
-        val hit = if (eventId > 0L) CalendarHit(eventId, eventTimeMs, eventTimeMs)
-                  else resolveCalendarEvent(context, eventTitle, eventTimeMs)
+        val hit = hitFor(context, eventId, eventTitle, eventTimeMs)
 
         if (hit != null) {
             val eventIntent = Intent(Intent.ACTION_VIEW,
@@ -91,60 +93,6 @@ object CalendarLauncher {
         tryStart(context, Intent(Intent.ACTION_MAIN)
             .addCategory(Intent.CATEGORY_APP_CALENDAR)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }
-
-    /**
-     * B.5 — finds the real calendar event behind this alarm.
-     *
-     * Google Calendar does **not** put an `eventId` in its notification extras
-     * (it is always -1), so the event has to be looked up in the calendar
-     * provider instead. Searches instances around the event's time and matches
-     * on title, preferring the instance closest to that time.
-     */
-    private fun resolveCalendarEvent(
-        context: Context,
-        eventTitle: String,
-        eventTimeMs: Long
-    ): CalendarHit? {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR)
-            != PackageManager.PERMISSION_GRANTED) return null
-
-        val anchor = if (eventTimeMs > 0L) eventTimeMs else System.currentTimeMillis()
-        val window = 12L * 60 * 60 * 1000
-        val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().apply {
-            ContentUris.appendId(this, anchor - window)
-            ContentUris.appendId(this, anchor + window)
-        }.build()
-        val projection = arrayOf(
-            CalendarContract.Instances.EVENT_ID,
-            CalendarContract.Instances.BEGIN,
-            CalendarContract.Instances.END,
-            CalendarContract.Instances.TITLE
-        )
-        val wanted = eventTitle.trim()
-        if (wanted.isEmpty()) return null
-
-        return runCatching {
-            context.contentResolver.query(uri, projection, null, null, null)?.use { c ->
-                var best: CalendarHit? = null
-                var bestDelta = Long.MAX_VALUE
-                while (c.moveToNext()) {
-                    val title = c.getString(3)?.trim().orEmpty()
-                    if (title.isEmpty()) continue
-                    val matches = title.equals(wanted, ignoreCase = true) ||
-                            title.contains(wanted, ignoreCase = true) ||
-                            wanted.contains(title, ignoreCase = true)
-                    if (!matches) continue
-                    val begin = c.getLong(1)
-                    val delta = kotlin.math.abs(begin - anchor)
-                    if (delta < bestDelta) {
-                        bestDelta = delta
-                        best = CalendarHit(c.getLong(0), begin, c.getLong(2))
-                    }
-                }
-                best
-            }
-        }.getOrNull()
     }
 
     private fun tryStart(context: Context, intent: Intent): Boolean =
