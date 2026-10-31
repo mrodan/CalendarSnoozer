@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -32,7 +32,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -50,12 +49,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.calendareventsnooze.R
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.SnoozePreset
+import com.calendareventsnooze.ui.components.NumberWheel
 import com.calendareventsnooze.ui.theme.LocalAlarmPalette
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.combineDateAndTime
@@ -402,51 +401,99 @@ private fun SectionDivider(label: String) {
     }
 }
 
-/** Shared with the Snoozed Alarms "Manage" sheet (F.4). */
+/**
+ * Shared with the Snoozed Alarms "Manage" sheet (F.4).
+ *
+ * Round 26 — two scrolling wheels instead of two typed fields. The fields put a
+ * keypad over a ringing alarm and took any number at all; the wheels cannot
+ * express an invalid duration, and they are what the rest of Android uses to
+ * pick one.
+ */
 @Composable
 internal fun SpecifyTimeDialog(
     onDismiss: () -> Unit,
     onConfirm: (totalMinutes: Int) -> Unit
 ) {
-    var hours by remember { mutableStateOf("0") }
-    var minutes by remember { mutableStateOf("10") }
+    var hours by remember { mutableIntStateOf(0) }
+    var minutes by remember { mutableIntStateOf(10) }
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = MaterialTheme.shapes.extraLarge,
         title = { Text("Specify snooze time") },
         text = {
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                // F.6 — digits only, so open the numeric keypad.
-                OutlinedTextField(
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.lg)
+            ) {
+                NumberWheel(
+                    range = 0..24,
                     value = hours,
-                    onValueChange = { hours = it.filter { c -> c.isDigit() } },
-                    label = { Text("Hours") },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.small,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    unit = "h",
+                    onValueChange = { hours = it },
                     modifier = Modifier.weight(1f)
                 )
-                OutlinedTextField(
+                NumberWheel(
+                    range = 0..59,
                     value = minutes,
-                    onValueChange = { minutes = it.filter { c -> c.isDigit() } },
-                    label = { Text("Minutes") },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.small,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    unit = "min",
+                    onValueChange = { minutes = it },
                     modifier = Modifier.weight(1f)
                 )
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                val h = hours.toIntOrNull() ?: 0
-                val m = minutes.toIntOrNull() ?: 0
-                val total = h * 60 + m
-                if (total > 0) onConfirm(total)
-            }) { Text("Snooze") }
+            // Zero is reachable on the wheels, and a zero-minute snooze would
+            // re-fire the alarm immediately, so Snooze is simply unavailable there.
+            TextButton(
+                onClick = { onConfirm(hours * 60 + minutes) },
+                enabled = hours * 60 + minutes > 0
+            ) { Text("Snooze") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+/**
+ * Round 26 — one of the four choices under "Pick a time". They share a width
+ * and a compact label so all four fit the dialog's button row on a phone; the
+ * outlined one is set apart by its border rather than by being bigger.
+ */
+@Composable
+private fun DialogChoice(
+    label: String,
+    modifier: Modifier = Modifier,
+    outlined: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    // Four buttons share about 265dp of dialog width on a phone, so they are
+    // labelMedium with no horizontal padding of their own: at labelLarge and
+    // 4dp either side "Tomorrow" came out as "Tomorro" — clipped, with no
+    // ellipsis to say so.
+    val padding = PaddingValues(horizontal = 0.dp, vertical = Spacing.sm)
+    if (outlined) {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier,
+            contentPadding = padding,
+            // M3 1.2's default outline does not dim with the button, so the
+            // disabled Today would keep a full-strength border around faded
+            // text. 38% is the scheme's own disabled opacity.
+            border = BorderStroke(
+                1.dp,
+                if (enabled) MaterialTheme.colorScheme.outline
+                else MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
+            )
+        ) { Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1) }
+    } else {
+        TextButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier,
+            contentPadding = padding
+        ) { Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1) }
+    }
 }
 
 /**
@@ -479,13 +526,56 @@ internal fun TimeAndDateDialog(
     )
 
     if (!pickingDate) {
+        /**
+         * Round 26 — the chosen wall-clock time on the day [daysAhead] from now.
+         *
+         * Deliberately **not** routed through `combineDateAndTime`: that exists
+         * to undo the DatePicker's UTC midnight (trap 1), and there is no
+         * DatePicker here. This is a local calendar from start to finish, so
+         * adding a day to it gives the same clock time tomorrow however the
+         * timezone shifts in between.
+         */
+        fun atChosenTime(daysAhead: Int): Long = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, daysAhead)
+            set(Calendar.HOUR_OF_DAY, timeState.hour)
+            set(Calendar.MINUTE, timeState.minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        // Re-read on every recomposition, so moving the clock hands past the
+        // current time re-enables Today straight away.
+        val todayMs = atChosenTime(0)
+        val todayAvailable = todayMs > System.currentTimeMillis()
+
         AlertDialog(
             onDismissRequest = onDismiss,
             shape = MaterialTheme.shapes.extraLarge,
-            title = { Text("Pick time") },
+            title = { Text("Pick a time") },
             text = { TimePicker(state = timeState) },
-            confirmButton = { TextButton(onClick = { pickingDate = true }) { Text("Next") } },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+            // Round 26 — four choices, so the common case ("this time today" /
+            // "this time tomorrow") no longer needs a trip through the calendar.
+            // They live in the confirm slot as one row rather than split across
+            // the two button slots, which would have reordered them.
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    DialogChoice("Cancel", Modifier.weight(1f), onClick = onDismiss)
+                    DialogChoice("Set Date", Modifier.weight(1f)) { pickingDate = true }
+                    DialogChoice("Tomorrow", Modifier.weight(1f)) { onConfirm(atChosenTime(1)) }
+                    // Outlined, because it is the one that commits to a time that
+                    // may be only minutes away. Disabled once that time is past:
+                    // a snooze into the past fires the instant it is set.
+                    DialogChoice(
+                        "Today",
+                        Modifier.weight(1f),
+                        outlined = true,
+                        enabled = todayAvailable
+                    ) { onConfirm(todayMs) }
+                }
+            }
         )
     } else {
         DatePickerDialog(
