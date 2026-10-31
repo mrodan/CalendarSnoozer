@@ -105,6 +105,14 @@
           overview entirely and autoRemoveFromRecents drops the task once the
           last activity finishes, so "CalendarSnoozer" in recents can only ever
           be MainActivity.
+
+          Round 26 — screenOrientation="portrait" stops auto-rotate turning the
+          takeover on its side. It is laid out as one tall column of 96dp
+          buttons, so landscape leaves almost nothing above the fold, and a
+          phone lying on a nightstand is exactly when an alarm fires. Note this
+          holds because the app targets SDK 35: from targetSdk 36 Android
+          ignores activity orientation locks on displays 600dp and wider, so
+          raising targetSdk means re-checking this.
         -->
         <activity
             android:name=".ui.AlarmActivity"
@@ -112,6 +120,7 @@
             android:launchMode="singleInstance"
             android:excludeFromRecents="true"
             android:autoRemoveFromRecents="true"
+            android:screenOrientation="portrait"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
             android:theme="@style/Theme.CalendarEventSnooze.Alarm"
