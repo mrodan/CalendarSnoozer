@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Round 26 — the app's own mark, as a notification small icon.
+
+  Android masks a small icon down to its alpha channel and draws it at 24dp, so
+  ic_calendar_snooze cannot be used directly: its artwork sits off-centre in the
+  512 viewport (centre 213.5, 250) and its 13-unit strokes come out under a
+  pixel wide in the status bar. The group below re-centres the glyph and scales
+  it — and therefore its stroke widths — by 1.25.
+
+  Keep this in step with ic_calendar_snooze if that mark ever changes.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <group
+        android:pivotX="213.5"
+        android:pivotY="250"
+        android:scaleX="1.25"
+        android:scaleY="1.25"
+        android:translateX="42.5"
+        android:translateY="6">
+
+        <!-- The two binder rings. -->
+        <path
+            android:pathData="M130,70 A15,15 0 0 1 160,70 L160,120 A15,15 0 0 1 130,120 Z"
+            android:strokeColor="#000000"
+            android:strokeWidth="13"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M250,70 A15,15 0 0 1 280,70 L280,120 A15,15 0 0 1 250,120 Z"
+            android:strokeColor="#000000"
+            android:strokeWidth="13"
+            android:strokeLineCap="round" />
+
+        <!-- Body -->
+        <path
+            android:pathData="M91,110 L309,110 A36,36 0 0 1 345,146 L345,394 A36,36 0 0 1 309,430 L91,430 A36,36 0 0 1 55,394 L55,146 A36,36 0 0 1 91,110 Z"
+            android:strokeColor="#000000"
+            android:strokeWidth="13"
+            android:strokeLineJoin="round" />
+
+        <!-- Header rule -->
+        <path
+            android:pathData="M55,195 L345,195"
+            android:strokeColor="#000000"
+            android:strokeWidth="10"
+            android:strokeLineCap="round" />
+
+        <!-- Date dots -->
+        <path
+            android:pathData="M106,270 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 Z"
+            android:fillColor="#000000" />
+        <path
+            android:pathData="M186,270 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 Z"
+            android:fillColor="#000000" />
+        <path
+            android:pathData="M106,340 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 Z"
+            android:fillColor="#000000" />
+
+        <!-- The two Zs -->
+        <path
+            android:pathData="M262,253 L372,253 L262,367 L372,367"
+            android:strokeColor="#000000"
+            android:strokeWidth="26"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M161,317 L226,317 L161,387 L226,387"
+            android:strokeColor="#000000"
+            android:strokeWidth="20"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+</vector>

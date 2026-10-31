@@ -15,6 +15,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Vibrator
 import androidx.core.app.NotificationCompat
+import com.calendareventsnooze.R
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.AutoDismissAction
@@ -25,6 +26,7 @@ import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.ui.MainActivity
+import com.calendareventsnooze.util.formatEventTime
 import com.calendareventsnooze.util.getAlarmEvent
 import com.calendareventsnooze.util.play
 import com.calendareventsnooze.util.putAlarmEvent
@@ -511,8 +513,14 @@ class AlarmService : Service() {
     }
 
     /**
-     * F.15 — files an alarm the user never acted on into the Missed list. Also
-     * clears its snooze record, so it appears in exactly one of the two.
+     * F.15 — files an alarm the user never acted on into the Missed list.
+     *
+     * Round 26 — and tells the user, every time. The notification used to be
+     * posted by two of the three call sites in [handleAutoDismiss] and not by
+     * Force Stop, so alarms could land in the Missed list with nothing on screen
+     * to say so. Posting it from here makes "recorded as missed" and "the user
+     * was told" the same event, and any future path that files a missed alarm
+     * gets the notification for free.
      */
     private fun recordMissed(alarmEvent: AlarmEvent) {
         AppPrefs.saveMissedAlarm(
@@ -526,6 +534,7 @@ class AlarmService : Service() {
                 missedAtMs  = System.currentTimeMillis()
             )
         )
+        showMissedNotification(alarmEvent)
     }
 
     // ------------------------------------------------------------------
@@ -538,7 +547,6 @@ class AlarmService : Service() {
             profile.autoDismissAction == AutoDismissAction.DISMISS) {
             AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
             recordMissed(alarmEvent)
-            showMissedNotification(alarmEvent.eventTitle)
             resolveAndAdvance(alarmEvent.alarmId)
             return
         }
@@ -550,7 +558,6 @@ class AlarmService : Service() {
             // Max retries exceeded — dismiss completely
             AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
             recordMissed(alarmEvent)
-            showMissedNotification(alarmEvent.eventTitle)
         } else {
             // Auto-snooze — schedule and save to snoozed list
             val snoozeMs = System.currentTimeMillis() +
@@ -569,7 +576,7 @@ class AlarmService : Service() {
         resolveAndAdvance(alarmEvent.alarmId)
     }
 
-    private fun showMissedNotification(title: String) {
+    private fun showMissedNotification(alarmEvent: AlarmEvent) {
         // F.17 — the notification had no content intent, so tapping it did
         // nothing at all. It now opens the Home tab, which is where the alarm
         // it is telling the user about has just been filed (F.15).
@@ -582,15 +589,32 @@ class AlarmService : Service() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val title = alarmEvent.eventTitle.ifBlank { "Calendar event" }
+        // The event's own day and time, not when it was given up on: "Missed
+        // Alarm: Dentist / Today at 3:00 PM" is what identifies which reminder
+        // went by. The event's description comes first when it has one.
+        val detail = listOfNotNull(
+            alarmEvent.eventText.takeIf { it.isNotBlank() },
+            formatEventTime(alarmEvent.eventTimeMs)
+        ).joinToString("  ·  ")
         val notif = NotificationCompat.Builder(this, "ces_missed")
-            .setContentTitle("Missed Calendar Alarm")
-            .setContentText(title)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Missed Alarm: $title")
+            .setContentText(detail)
+            // Long event descriptions are cut off on one line, so let the
+            // expanded notification show the whole thing.
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(open)
             .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setWhen(alarmEvent.eventTimeMs.takeIf { it > 0L } ?: System.currentTimeMillis())
+            .setShowWhen(true)
             .build()
+        // Keyed on the alarm, not the clock: an alarm that is auto-snoozed and
+        // then missed again replaces its own notification instead of stacking a
+        // second copy for the same event.
         getSystemService(NotificationManager::class.java)
-            .notify(System.currentTimeMillis().toInt(), notif)
+            .notify(alarmEvent.alarmId.hashCode(), notif)
     }
 
     override fun onDestroy() {
