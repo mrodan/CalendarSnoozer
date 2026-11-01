@@ -20,14 +20,11 @@ class CalendarNotificationListener : NotificationListenerService() {
          * Round 27 — how recently a notification must have been posted to count
          * as a fresh reminder.
          *
-         * `onNotificationPosted` is delivered for notifications that are
-         * *already on screen* whenever the listener binds, and the listener
-         * rebinds often: on reboot, after an app update, whenever Android
-         * reclaims it, and whenever `onListenerDisconnected` asks for it back
-         * (round 20). Calendar reminders sit in the shade until they are
-         * dismissed, so a replayed batch raises alarms for events that are
-         * hours old — at exactly the round hours and half hours the user
-         * reported, because those are when meetings start.
+         * This was added on the theory that binding replays what is already in
+         * the shade. Round 28 measured that on API 34 and it does **not**: 14
+         * live notifications produced nothing through a rebind or an app
+         * update. It stays as a guard against a very late delivery, but it is
+         * not the explanation for the ghost alarms.
          */
         const val FRESH_NOTIFICATION_MS = 2L * 60 * 1000
     }
@@ -67,10 +64,9 @@ class CalendarNotificationListener : NotificationListenerService() {
         val notification = sbn.notification
         val extras = notification.extras
         // Round 27 — `Bundle.getString` returns null for a CharSequence that is
-        // not a String, and notification titles are routinely SpannableStrings.
-        // That is why the reported "ghost alarm" had no title: the event was
-        // real, its title simply could not be read, so the takeover came up
-        // blank and looked like it had arrived from nowhere.
+        // not a String, and notification titles are often SpannableStrings. This
+        // may be why the reported "ghost alarm" had no title, but that is not
+        // confirmed: the interception log records what real reminders contain.
         val title = extras.text("android.title") ?: extras.text("android.subject") ?: ""
         val text = extras.text("android.text") ?: extras.text("android.bigText") ?: ""
 
