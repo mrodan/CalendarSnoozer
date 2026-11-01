@@ -53,7 +53,7 @@ CalendarNotificationListener ─┐
 AlarmReceiver (TRIGGER_ALARM) ─┼─→ AlarmService (owns ALL ringing alarms)
 TestAlarmHelper ──────────────┘        │
                                        ├─ audio + vibration
-                                       ├─ sticky full-screen-intent notification (id 1002)
+                                       ├─ sticky low-importance notification (id 1002)
                                        └─ launches/updates AlarmActivity (the takeover)
 AlarmScheduler → AlarmManager → AlarmReceiver (fires a snoozed alarm)
 AppPrefs (SharedPreferences + Gson) — all persistence
@@ -82,10 +82,11 @@ AppPrefs (SharedPreferences + Gson) — all persistence
 
 `CalendarNotificationListener` is not "every notification from a watched
 package" any more. In order: the package must be watched, the master switch on,
-and the time outside Silent Hours; then the notification must not be a group
-summary or an ongoing one, must have been posted within the last two minutes
-(trap 26), must have a title or text, and must not repeat one already alarmed.
-Only then is the account filter consulted. Every rejection is written to a
+and the time outside Silent Hours; then outside Shabbat & Yom Tov Mode, and the
+notification must not be a group summary or an ongoing one, must have been
+posted within the last two minutes (trap 26), must have a title or text, and
+must not repeat one already alarmed. Only then is the account filter consulted.
+Every rejection is written to a
 rolling log in preferences — no UI, read it with `adb shell run-as
 com.calendareventsnooze cat .../ces_prefs.xml` when a ghost alarm is reported.
 
@@ -95,6 +96,30 @@ id (trap 3), so the event is matched by title and time through
 match, or an unreadable calendar all mean "let the alarm through". Suppressing
 an alarm on a guess is the one outcome worth avoiding, and the Settings card
 tells the user this rather than implying a guarantee.
+
+### Shabbat & Yom Tov Mode (round 28)
+
+Nothing may ring during Shabbat or Yom Tov in the selected city. Unlike Silent
+Hours, that includes alarms already in motion, so **any new way to ring an alarm
+must check `ObservanceCalendar.isSilenced`**. Today there are three:
+
+- A new reminder is left as the calendar app posted it (the listener).
+- A snooze coming due goes to Missed Alarms with no sound, takeover or
+  notification (`AlarmReceiver`). So does one found overdue on reboot or app open
+  (`rescheduleAllSnoozed`). The due time counts as well as the clock, so a late
+  delivery cannot ring after the period ends.
+- An alarm ringing when the period begins is ended the same way, by a cutoff
+  armed in `presentTopAlarm`.
+
+The Test buttons still ring: Test Alarm directly, and Test Alarm +5 because it
+reaches the receiver with no snooze record.
+
+`assets/shabbat_yomtov/*.tsv` are the user's rows, unedited, through 27 Oct 2046.
+Times are wall-clock in the **city's** zone, not the phone's. `mergeRows` joins
+overlapping rows, and a row starting on the date the last period ended: on eight
+Saturday nights the Miami file starts Yom Tov 8 minutes after Shabbat ends, and
+the user confirmed those are one continuous period. All three cities merge to
+1109 periods; `ObservanceCalendarTest` runs against the real assets.
 
 ### The alarm stack (B.6) — the most important invariant
 
@@ -339,20 +364,37 @@ Silent Hours & Days.
 
 **25. Notification extras are CharSequences; `getString` returns null for them.**
 `Bundle.getString("android.title")` returns null whenever the value is a
-CharSequence that is not a String, and notification titles are routinely
-SpannableStrings. That is how real calendar reminders became "ghost alarms":
-the event was genuine, the title simply never arrived, and the takeover came up
-blank. Always `getCharSequence(key)?.toString()`.
+CharSequence that is not a String, and notification titles are often
+SpannableStrings. Always `getCharSequence(key)?.toString()`. This is a suspected
+cause of the blank "ghost alarm", **not a confirmed one**: no real Google Calendar
+notification has been inspected. The interception log will show what they hold.
 
-**26. `onNotificationPosted` replays everything in the shade on every bind.**
-It is not only called for new notifications: when the listener binds it is
-delivered the notifications already on screen. It binds often — reboot, app
-update, Android reclaiming it, and trap-19's `requestRebind`. Calendar reminders
-sit in the shade until dismissed, so a replay raises alarms for events hours
-old, at exactly the round hours meetings start. The listener therefore ignores
-anything whose `postTime` is more than two minutes ago, along with group
-summaries, ongoing notifications, contentless ones, and in-place updates of a
-notification already alarmed.
+**26. Binding does NOT replay the shade, despite what round 27 said.**
+Round 27 blamed ghost alarms on `onNotificationPosted` being re-delivered for
+notifications already on screen, without measuring it. Round 28 measured it on
+API 34: with 14 live notifications from a watched package, neither a rebind
+(`disallow_listener` / `allow_listener`) nor `adb install -r` delivered anything.
+Android 17 is untested, and **the cause of the ghost alarms is still unknown**.
+The listener still ignores anything whose `postTime` is more than two minutes
+ago, along with group summaries, ongoing notifications, contentless ones and
+in-place updates of a notification already alarmed. Those guards are reasonable,
+but none has been shown to be what stopped a ghost. Read `interception_log` after
+the next report, before theorising.
+
+**28. `adb root` breaks `cmd notification post`, and seeding prefs races the app.**
+Simulating a reminder means watching `com.android.shell`, so testing listener
+behaviour needs no calendar account. Two things make it look broken. Under
+`adb root` the post throws inside the system server yet still prints "posting:",
+so run it as `su 2000 cmd notification post -S bigtext -t TITLE TAG TEXT`. And the
+bound listener keeps the process alive, so a live process overwrites any prefs
+file written beneath it: `disallow_listener`, `force-stop`, copy the file,
+`allow_listener`. Always run a control that must ring; silence proves nothing
+until the same setup has been seen to alarm.
+
+To test anything date-bound, use the emulator: `adb root`, turn `auto_time` off,
+then `adb shell date MMDDhhmmYYYY.ss`. Only move the clock forward, because
+notifications dated in the future defeat the `postTime` check. Clock jumps often
+raise "System UI isn't responding", so check for that dialog before tapping.
 
 **27. Channel importance draws the heads-up banner, not the full-screen intent.**
 A notification announcing the alarm appeared *over* the takeover. Dropping its

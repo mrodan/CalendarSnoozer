@@ -13,8 +13,8 @@ android {
         applicationId = "com.calendareventsnooze"
         minSdk = 26
         targetSdk = 35
-        versionCode = 21
-        versionName = "2.9"
+        versionCode = 22
+        versionName = "3.0"
     }
     // Release signing, loaded from the gitignored keystore.properties. Without
     // this block assembleRelease silently produces app-release-UNSIGNED.apk,

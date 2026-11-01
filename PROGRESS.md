@@ -313,6 +313,19 @@ Prompted by wanting to share the APK with other people, on phones that are not P
 - Verified on the phone: both accounts listed with the right counts, switching one off stored it, switching it back on cleared it.
 - versionCode 21 / versionName 2.9.
 
+**Correction (round 27):** the ghost-alarm diagnosis above was stated as fact and was not measured. The replay explanation is **wrong on API 34**: round 28 put 14 live notifications from a watched package through a rebind and an app update, and nothing was delivered. The unreadable-title explanation is unconfirmed, because no real Google Calendar notification has been inspected. The guards are still in place, but the cause of the ghost alarms is unknown. No real reminder has reached the phone's interception log yet; read it after the next report.
+
+## Round 28 — Shabbat & Yom Tov Mode, verified on the API 34 emulator and the Pixel 10a / Android 17
+- [x] **The schedule is bundled**, 1184 rows per city for Caracas, Miami and New York City, from the user's three workbooks, through 27 Oct 2046. Checked independently first: all 140 Yom Tov dates match .NET's Hebrew calendar, Shabbat never skips a week, and all times are within 2 minutes of NOAA sunset except the 8 Miami rows below.
+- **The Miami workbook starts Yom Tov 8 minutes after Shabbat ends on 8 Saturday nights** (sunset +50 against +42). The rows are kept as supplied; the user confirmed Shabbat and the Yom Tov after it are one continuous period, so merging closes the gap. All three cities merge to 1109 silent periods.
+- [x] **Settings section "Shabbat & Yom Tov Mode"**, below Silent Hours & Days, with "Aaron Yaakov ben Mordecai Mode" over ON and the city, or OFF, and one exclusive switch per city. Off by default.
+- [x] **Nothing rings during the period.** A new reminder is left as Google Calendar posted it. The user chose that alarms in motion go to Missed Alarms silently, which differs from Silent Hours, where a snoozed alarm rings. That covers a snooze coming due, an alarm ringing at candle lighting, and a snooze found overdue after a reboot. Test Alarm and Test Alarm +5 still ring.
+- Google Calendar's own notification can still make its usual sound; only Do Not Disturb stops that.
+- **Verified on the emulator with its clock set into a real Shabbat, with a control that rang for each silent case.** Reminders at 16:27 ring and 16:28 do not; 17:26 does not and 17:27 does. Also correct: the Miami gap, Caracas selected on a phone in New York, a Yom Tov, Chol Hamoed (rings, it is not in the schedule) and the mode switched off. A snooze due at 19:48 with Shabbat starting 19:47 went to Missed with no takeover, sound or notification. A test alarm ringing at candle lighting stopped on time and did the same. A snooze left overdue through a whole Shabbat did too, 36 seconds after reopening, while one overdue on an ordinary day still rang.
+- Verified on the phone: the section, exclusive switches, persistence across a force-stop, and an alarm ringing normally with the mode on outside Shabbat. **The silencing itself has not run on the Pixel**, because its clock cannot be moved.
+- `ObservanceCalendarTest` is the first unit test in the project, added with JUnit, and runs against the real assets.
+- versionCode 22 / versionName 3.0.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution
