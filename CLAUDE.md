@@ -53,7 +53,7 @@ CalendarNotificationListener ─┐
 AlarmReceiver (TRIGGER_ALARM) ─┼─→ AlarmService (owns ALL ringing alarms)
 TestAlarmHelper ──────────────┘        │
                                        ├─ audio + vibration
-                                       ├─ sticky full-screen-intent notification (id 1002)
+                                       ├─ sticky low-importance notification (id 1002)
                                        └─ launches/updates AlarmActivity (the takeover)
 AlarmScheduler → AlarmManager → AlarmReceiver (fires a snoozed alarm)
 AppPrefs (SharedPreferences + Gson) — all persistence
@@ -77,6 +77,48 @@ AppPrefs (SharedPreferences + Gson) — all persistence
   keep it as the single implementation.
 - Sound settings are per **ringer mode** (SOUND_ON / VIBRATE / SILENT); the
   service picks the profile matching the phone's current ringer state.
+
+### What the listener accepts (round 27)
+
+`CalendarNotificationListener` is not "every notification from a watched
+package" any more. In order: the package must be watched, the master switch on,
+and the time outside Silent Hours; then outside Shabbat & Yom Tov Mode, and the
+notification must not be a group summary or an ongoing one, must have a title or
+text, and must not repeat one already alarmed. Only then is the account filter
+consulted. Every decision, with how long after posting it arrived, is written to a
+rolling log in preferences — no UI, read it with `adb shell run-as
+com.calendareventsnooze cat .../ces_prefs.xml` when a ghost alarm is reported.
+
+Account filtering **fails open at every step**. A notification carries no event
+id (trap 3), so the event is matched by title and time through
+`CalendarEvents.resolve` and its calendar gives the account; no permission, no
+match, or an unreadable calendar all mean "let the alarm through". Suppressing
+an alarm on a guess is the one outcome worth avoiding, and the Settings card
+tells the user this rather than implying a guarantee.
+
+### Shabbat & Yom Tov Mode (round 28)
+
+Nothing may ring during Shabbat or Yom Tov in the selected city. Unlike Silent
+Hours, that includes alarms already in motion, so **any new way to ring an alarm
+must check `ObservanceCalendar.isSilenced`**. Today there are three:
+
+- A new reminder is left as the calendar app posted it (the listener).
+- A snooze coming due goes to Missed Alarms with no sound, takeover or
+  notification (`AlarmReceiver`). So does one found overdue on reboot or app open
+  (`rescheduleAllSnoozed`). The due time counts as well as the clock, so a late
+  delivery cannot ring after the period ends.
+- An alarm ringing when the period begins is ended the same way, by a cutoff
+  armed in `presentTopAlarm`.
+
+The Test buttons still ring: Test Alarm directly, and Test Alarm +5 because it
+reaches the receiver with no snooze record.
+
+`assets/shabbat_yomtov/*.tsv` are the user's rows, unedited, through 27 Oct 2046.
+Times are wall-clock in the **city's** zone, not the phone's. `mergeRows` joins
+overlapping rows, and a row starting on the date the last period ended: on eight
+Saturday nights the Miami file starts Yom Tov 8 minutes after Shabbat ends, and
+the user confirmed those are one continuous period. All three cities merge to
+1109 periods; `ObservanceCalendarTest` runs against the real assets.
 
 ### The alarm stack (B.6) — the most important invariant
 
@@ -102,6 +144,26 @@ Two activity flags, easy to get wrong:
 
 If neither is set, `onDestroy` must **not** stop the service — that's the
 system destroying us (Home button, task swipe) and the alarm must survive.
+
+### The auto-dismiss countdown is managed, not fire-and-forget
+
+It is a `Runnable` the service holds, with its deadline — **not** an anonymous
+lambda on the shared `handler`, because the only way to cancel one of those is
+`removeCallbacksAndMessages(null)`, and that queue also carries the sound
+sequencing and per-output delays. Three things drive it:
+
+- **"Shhhh"** restarts it from full. It means "not yet", so letting the
+  remaining seconds expire and file the alarm as missed is the wrong answer.
+- **Opening a snooze picker** pauses it; closing one resumes from what was
+  left. Choosing a time takes longer than a 30-second countdown allows, and the
+  alarm used to resolve itself out from under the open dialog.
+- A countdown resumed with ~nothing left gets a second's grace, or Cancel would
+  look like it dismissed the alarm.
+
+`AlarmScreen`'s on-screen counter mirrors this: `secondsLeft` lives **outside**
+the `LaunchedEffect` that ticks it, so re-keying the effect pauses and continues
+the count. "Shhhh" has to reset the value *and* re-key, or a counter that had
+already reached zero would never tick again.
 
 ### Takeover can't be escaped (B.1)
 
@@ -283,6 +345,100 @@ badge and "All permissions are granted". Adding a genuinely required permission
 means adding it to the `pendingCount` list too; adding an optional one means
 *not* doing that.
 
+**24. `AudioManager.getRingerMode()` lies while Do Not Disturb is on.**
+Android keeps two ringer modes: the *internal* one the user set, and the
+*external* one apps are told. DND forces the external one to SILENT and leaves
+the internal one alone — so `getRingerMode()` reports SILENT on a phone set to
+Sound, and the app picked the Silent profile for every alarm, permanently, for
+anyone on a DND schedule. `getRingerModeInternal()` is the right API and is not
+public, so `util/RingerModes.kt` reads the setting `AudioService` persists the
+internal mode to and falls back to `getRingerMode()`. Confirm with
+`adb shell dumpsys audio | grep -A3 "^Ringer mode:"`, which prints both:
+
+    - mode (internal) = NORMAL
+    - mode (external) = SILENT
+
+Alarms are deliberately **not** silenced by DND; quiet hours are the app's own
+Silent Hours & Days.
+
+**25. Notification extras are CharSequences; `getString` returns null for them.**
+`Bundle.getString("android.title")` returns null whenever the value is a
+CharSequence that is not a String, and notification titles are often
+SpannableStrings. Always `getCharSequence(key)?.toString()`. This is a suspected
+cause of the blank "ghost alarm", **not a confirmed one**: no real Google Calendar
+notification has been inspected. The interception log will show what they hold.
+
+**26. Binding does NOT replay the shade, despite what round 27 said.**
+Round 27 blamed ghost alarms on `onNotificationPosted` being re-delivered for
+notifications already on screen, without measuring it. Round 28 measured it on
+API 34: with 14 live notifications from a watched package, neither a rebind
+(`disallow_listener` / `allow_listener`) nor `adb install -r` delivered anything.
+Android 17 is untested, and **the cause of the ghost alarms is still unknown**.
+Round 29 removed the two-minute staleness rule built on that theory, at the
+user's request, because it could silently drop a reminder that arrived late. The
+listener still ignores group summaries, ongoing notifications, contentless ones
+and in-place updates of a notification already alarmed; none of those has been
+shown to stop a ghost. `interception_log` records each notification's age on
+arrival instead. Read it after the next report, before theorising.
+
+**28. `adb root` breaks `cmd notification post`, and seeding prefs races the app.**
+Simulating a reminder means watching `com.android.shell`, so testing listener
+behaviour needs no calendar account. Two things make it look broken. Under
+`adb root` the post throws inside the system server yet still prints "posting:",
+so run it as `su 2000 cmd notification post -S bigtext -t TITLE TAG TEXT`. And the
+bound listener keeps the process alive, so a live process overwrites any prefs
+file written beneath it: `disallow_listener`, `force-stop`, copy the file,
+`allow_listener`. Always run a control that must ring; silence proves nothing
+until the same setup has been seen to alarm.
+
+To test anything date-bound, use the emulator: `adb root`, turn `auto_time` off,
+then `adb shell date MMDDhhmmYYYY.ss`. Clock jumps often raise "System UI isn't
+responding", so check for that dialog before tapping.
+
+**27. Channel importance draws the heads-up banner, not the full-screen intent.**
+A notification announcing the alarm appeared *over* the takeover. Dropping its
+full-screen intent was measured and **did not** help: IMPORTANCE_HIGH alone is
+enough. A foreground service must post something, so the ringing-alarm
+notification lives on an IMPORTANCE_LOW channel (`ces_alarm_ongoing`) and the
+full-screen intent moved to a second notification on the HIGH channel, posted
+only when the takeover has failed to reach the screen within 1.5s. B.6 is
+unaffected on the low channel — importance governs the banner, not
+dismissibility, so ongoing, `FLAG_NO_CLEAR` and the re-assert delete intent all
+still work. A channel's importance cannot be changed after it is created, which
+is why this is a new channel id rather than an edit to the old one.
+
+**21. A Compose wheel picker needs blank end rows, not `contentPadding`.**
+The usual recipe — a 3-row-tall `LazyColumn` with `contentPadding = vertical
+itemHeight` and `firstVisibleItemIndex` as the selection — looks right and is
+ambiguous: the padding counts as content in some of LazyColumn's measurements
+and not others, so which index is *centred* shifts by one depending on where
+the scroll happens to be. `NumberWheel` instead puts a blank row at each end
+and reads the centred item out of `layoutInfo` by distance from the viewport's
+midpoint. Then `scrollToItem(i)` puts list item `i` flush at the top, the
+middle row is list item `i + 1` — value `i` — and snapping lands on exactly
+those positions. `rememberSnapFlingBehavior` is still `@ExperimentalFoundationApi`
+on this Compose version, same as the pager (trap 8).
+
+**22. `POST_NOTIFICATIONS` is denied by default and fails silently.**
+Android 13+ drops any `notify()` from an app without it, with no exception and
+nothing in logcat. It was **off on the user's own Pixel**, which is how a
+missed-alarm notification could be "working" in code and invisible in life.
+It is in the Permissions card and in `pendingCount` because the feature it
+gates — telling the user an alarm was missed — is the one this app exists for.
+Note the foreground-service notification is unaffected, so the alarm itself
+still behaves normally; only the missed-alarm notification vanishes. Also note
+the request dialog stops appearing after two declines and the launcher then
+returns "denied" instantly, so the row falls through to app notification
+settings.
+
+**23. The takeover's portrait lock depends on targetSdk staying ≤ 35.**
+`android:screenOrientation="portrait"` on `AlarmActivity` is what stops
+auto-rotate turning the alarm on its side. From **targetSdk 36** Android
+ignores activity orientation locks on displays 600dp and wider — so raising
+targetSdk silently un-does this. Check `requestedOrientation` in
+`dumpsys activity activities` together with `ignoreOrientationRequest`; the
+manifest attribute alone no longer proves the behaviour.
+
 **18. `OutlinedTextField` cannot simply be made shorter.**
 Its decoration box reserves a fixed slice for the floating label and centres the
 input in what is left, so `Modifier.height(48.dp)` renders the *value* clipped
@@ -400,6 +556,11 @@ Non-obvious testing facts:
   `adb shell run-as com.calendareventsnooze cat
   /data/data/com.calendareventsnooze/shared_prefs/ces_prefs.xml`. This is the
   fastest way to prove auto-save and JSON migration actually worked.
+- **The user can be touching the phone while you drive it.** A Shhhh test once
+  ended with the takeover closed a second early and an unrelated missed alarm
+  gone from the list; an identical second run behaved correctly and nothing was
+  in the crash buffer. Before writing up an anomaly seen on *their* device, run
+  it again — and say plainly which of the two you are reporting.
 - The user's phone is often **locked** (screenshots come back black, and the PIN
   must never be attempted) — but they will unlock it on request for a debugging
   session, so ask rather than defaulting to the emulator. The emulator is a poor

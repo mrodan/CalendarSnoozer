@@ -7,7 +7,9 @@ import android.content.Intent
 import android.os.Build
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
+import com.calendareventsnooze.model.MissedAlarmRecord
 import com.calendareventsnooze.receiver.AlarmReceiver
+import com.calendareventsnooze.util.ObservanceCalendar
 import com.calendareventsnooze.util.putAlarmEvent
 
 object AlarmScheduler {
@@ -54,6 +56,10 @@ object AlarmScheduler {
      * is corrected, so the user still gets the reminder they asked for instead of
      * a dead row.
      *
+     * Round 28 — except one that came due during Shabbat or Yom Tov, or is found
+     * during it. That goes to Missed Alarms, exactly as if it had been delivered
+     * on time; a phone off for the whole of Shabbat must not ring afterwards.
+     *
      * @return how many past-due alarms were repaired.
      */
     fun rescheduleAllSnoozed(ctx: Context): Int {
@@ -70,6 +76,10 @@ object AlarmScheduler {
             )
             if (record.scheduledTimeMs > now) {
                 scheduleAt(ctx, event, record.scheduledTimeMs)
+            } else if (ObservanceCalendar.isSilenced(ctx, now) ||
+                ObservanceCalendar.isSilenced(ctx, record.scheduledTimeMs)
+            ) {
+                fileAsMissed(ctx, event)
             } else {
                 stagger += 30_000L
                 val revived = now + stagger
@@ -79,6 +89,25 @@ object AlarmScheduler {
             }
         }
         return repaired
+    }
+
+    /**
+     * F.15 — moves an alarm to the Missed list, ending any retries and clearing
+     * its snooze record. It posts nothing: telling the user is the caller's call.
+     */
+    fun fileAsMissed(ctx: Context, alarmEvent: AlarmEvent) {
+        AppPrefs.resetAutoSnoozeCount(ctx, alarmEvent.alarmId)
+        AppPrefs.saveMissedAlarm(
+            ctx,
+            MissedAlarmRecord(
+                alarmId     = alarmEvent.alarmId,
+                eventTitle  = alarmEvent.eventTitle,
+                eventText   = alarmEvent.eventText,
+                eventId     = alarmEvent.eventId,
+                eventTimeMs = alarmEvent.eventTimeMs,
+                missedAtMs  = System.currentTimeMillis()
+            )
+        )
     }
 
     fun cancelAlarm(ctx: Context, alarmId: String) {

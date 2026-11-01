@@ -65,17 +65,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.calendareventsnooze.data.AppPrefs
+import com.calendareventsnooze.model.ObservanceCity
 import com.calendareventsnooze.model.SilentHours
 import com.calendareventsnooze.model.SilentWindow
 import com.calendareventsnooze.ui.components.OnResumeRefresh
 import com.calendareventsnooze.ui.components.SectionCard
 import com.calendareventsnooze.ui.theme.Spacing
 import com.calendareventsnooze.util.CalendarApps
+import com.calendareventsnooze.util.CalendarEvents
 import java.util.Calendar
 import kotlin.math.sqrt
 
 /**
- * The five things the app cannot work without. Grouped so the nav bar's badge
+ * The six things the app cannot work without. Grouped so the nav bar's badge
  * and the Permissions card can't disagree about how many are outstanding.
  */
 data class PermissionsStatus(
@@ -84,6 +86,15 @@ data class PermissionsStatus(
     val exactAlarm: Boolean = false,
     val readCalendar: Boolean = false,
     val fullScreenIntent: Boolean = false,
+    /**
+     * Round 26 — Android 13+ requires this to post anything, and it is denied
+     * by default. Without it the missed-alarm notification is dropped silently:
+     * the alarm is filed in the Missed list and nothing on the phone says so.
+     * Found on the Pixel, where it was off. Required, not optional — a missed
+     * alarm the user is never told about is the failure this app exists to
+     * prevent. Always true below API 33, where there was no such permission.
+     */
+    val postNotifications: Boolean = false,
     /**
      * Round 20 — recommended, not required: the app works without it, it just
      * becomes less reliable on phones that sleep background apps. Deliberately
@@ -94,7 +105,8 @@ data class PermissionsStatus(
 ) {
     val pendingCount: Int
         get() = listOf(
-            notificationAccess, overlay, exactAlarm, readCalendar, fullScreenIntent
+            notificationAccess, overlay, exactAlarm, readCalendar, fullScreenIntent,
+            postNotifications
         ).count { !it }
 
     val allGranted: Boolean get() = pendingCount == 0
@@ -107,8 +119,31 @@ fun readPermissions(context: Context) = PermissionsStatus(
     readCalendar = ContextCompat.checkSelfPermission(
         context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED,
     fullScreenIntent = canUseFullScreenIntent(context),
+    postNotifications = canPostNotifications(context),
     batteryUnrestricted = isBatteryUnrestricted(context)
 )
+
+/** Android 13+ only; before that, posting needed no permission. */
+private fun canPostNotifications(context: Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(
+            context, Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+
+/**
+ * The system dialog, but only while Android will still show it — it stops
+ * appearing once the user has declined twice, and the launcher then returns
+ * "denied" without anything happening on screen. Falling through to the app's
+ * own notification settings means the row always leads somewhere.
+ */
+private fun openNotificationSettings(context: Context) {
+    runCatching {
+        context.startActivity(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
 
 /**
  * True when Android has been told to stop putting the app to sleep. Optional,
@@ -151,6 +186,16 @@ fun SettingsScreen() {
         ActivityResultContracts.RequestPermission()
     ) { refreshKey++ }
 
+    // Round 26 — if the dialog no longer appears (declined twice), send the
+    // user to the app's notification settings rather than leaving the row
+    // looking broken.
+    val notificationPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        refreshKey++
+        if (!granted) openNotificationSettings(context)
+    }
+
     var permissionsExpanded by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
 
@@ -168,6 +213,9 @@ fun SettingsScreen() {
 
         Spacer(Modifier.height(Spacing.lg))
         SilentHoursCard(refreshKey)
+
+        Spacer(Modifier.height(Spacing.lg))
+        ShabbatYomTovCard(refreshKey)
 
         Spacer(Modifier.height(Spacing.lg))
 
@@ -267,6 +315,20 @@ fun SettingsScreen() {
                     ) {
                         openFullScreenIntentSettings(context)
                     }
+                    // Round 26 — denied by default on Android 13+, which drops
+                    // the missed-alarm notification with no symptom at all.
+                    PermissionRow(
+                        name = "Notifications",
+                        description = "Required to tell you about a missed alarm",
+                        granted = status.postNotifications
+                    ) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notificationPermLauncher
+                                .launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            openNotificationSettings(context)
+                        }
+                    }
                     // Optional — see PermissionsStatus.batteryUnrestricted. It
                     // never counts towards the badge or the pending total.
                     PermissionRow(
@@ -301,6 +363,12 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
     val installed = remember(refreshKey) { CalendarApps.installedKnown(context) }
     var selected by remember(refreshKey) {
         mutableStateOf(AppPrefs.getCalendarPackages(context))
+    }
+    // Round 27 — read once per refresh: the provider query is cheap but not
+    // free, and the list must not reshuffle while the card is open.
+    val accounts = remember(refreshKey) { CalendarEvents.accounts(context) }
+    var ignoredAccounts by remember(refreshKey) {
+        mutableStateOf(AppPrefs.getIgnoredCalendarAccounts(context))
     }
     var expanded by remember { mutableStateOf(false) }
     // Round 21 — turning on a mixed-use app is confirmed, because the
@@ -377,6 +445,24 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
                         if (needsConfirming) confirming = entry
                         else setWatched(entry.packageName, checked)
                     }
+
+                    // Round 27 — the accounts behind Google Calendar, nested
+                    // under it and only while it is being watched. The calendar
+                    // provider is not partitioned by app, so this is attached to
+                    // the one app that syncs these accounts rather than repeated
+                    // under every calendar in the list.
+                    if (entry.packageName == CalendarApps.GOOGLE_CALENDAR &&
+                        entry.packageName in selected
+                    ) {
+                        CalendarAccountList(
+                            accounts = accounts,
+                            ignored = ignoredAccounts,
+                            onChanged = { account, watched ->
+                                AppPrefs.setCalendarAccountWatched(context, account, watched)
+                                ignoredAccounts = AppPrefs.getIgnoredCalendarAccounts(context)
+                            }
+                        )
+                    }
                 }
 
                 missing.forEach { pkg ->
@@ -416,6 +502,76 @@ private fun CalendarAppsCard(refreshKey: Int, onChanged: () -> Unit) {
     }
 }
 
+/**
+ * Round 27 — which accounts' events raise an alarm, nested under Google
+ * Calendar.
+ *
+ * Attribution is best-effort and the app says so: a reminder is matched back to
+ * its event by title (trap 3 — the notification carries no event id), and when
+ * that fails the alarm goes ahead regardless. Switching an account off is
+ * therefore "stop alarming for this account's events", not a guarantee of
+ * silence, and the caption says exactly that rather than letting the user infer
+ * a promise the provider cannot keep.
+ */
+@Composable
+private fun CalendarAccountList(
+    accounts: List<CalendarEvents.Account>,
+    ignored: Set<String>,
+    onChanged: (account: String, watched: Boolean) -> Unit
+) {
+    if (accounts.isEmpty()) {
+        Text(
+            "No calendar accounts readable yet — grant Read Calendar below.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = Spacing.xl, bottom = Spacing.sm)
+        )
+        return
+    }
+
+    val allOff = accounts.all { it.name in ignored }
+
+    Column(Modifier.padding(start = Spacing.xl)) {
+        accounts.forEach { account ->
+            val watched = account.name !in ignored
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onChanged(account.name, !watched) }
+                    .padding(vertical = Spacing.xs),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(account.name, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        account.calendarNames.size.let {
+                            if (it == 1) "1 calendar" else "$it calendars"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.size(Spacing.sm))
+                Switch(
+                    checked = watched,
+                    onCheckedChange = { onChanged(account.name, it) }
+                )
+            }
+        }
+
+        Text(
+            if (allOff) "Every account is switched off, so no reminder from " +
+                "Google Calendar will raise an alarm."
+            else "A reminder is matched to its event by name. If it cannot be " +
+                "matched, the alarm still rings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (allOff) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.sm)
+        )
+    }
+}
+
 @Composable
 private fun CalendarAppRow(
     label: String,
@@ -449,6 +605,78 @@ private fun CalendarAppRow(
         }
         Spacer(Modifier.size(Spacing.sm))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * Round 28 — silences the app during Shabbat and Yom Tov, on the schedule of one
+ * city. The switches behave as a single choice: turning one on replaces the
+ * previous city, and turning the selected one off leaves the mode off.
+ */
+@Composable
+private fun ShabbatYomTovCard(refreshKey: Int) {
+    val context = LocalContext.current
+    var city by remember(refreshKey) { mutableStateOf(AppPrefs.getObservanceCity(context)) }
+    var expanded by remember { mutableStateOf(false) }
+
+    fun select(next: ObservanceCity?) {
+        city = next
+        AppPrefs.setObservanceCity(context, next)
+    }
+
+    SectionCard("Shabbat & Yom Tov Mode") {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Aaron Yaakov ben Mordecai Mode",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    city?.let { "ON ${it.label}" } ?: "OFF",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column {
+                Spacer(Modifier.height(Spacing.sm))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(Spacing.sm))
+                ObservanceCity.entries.forEach { option ->
+                    val selected = option == city
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { select(if (selected) null else option) }
+                            .padding(vertical = Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            option.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(
+                            checked = selected,
+                            onCheckedChange = { on -> select(if (on) option else null) }
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

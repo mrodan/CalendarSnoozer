@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -27,7 +26,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
-import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.service.AlarmService
@@ -36,6 +34,7 @@ import com.calendareventsnooze.ui.theme.CalendarEventSnoozeTheme
 import com.calendareventsnooze.ui.theme.LocalAlarmPalette
 import com.calendareventsnooze.ui.theme.paletteFor
 import com.calendareventsnooze.util.CalendarLauncher
+import com.calendareventsnooze.util.RingerModes
 import com.calendareventsnooze.util.getAlarmEvent
 import com.calendareventsnooze.util.putAlarmEvent
 
@@ -111,8 +110,20 @@ class AlarmActivity : ComponentActivity() {
                             },
                             onDismiss = { openCalendar -> performDismiss(event, openCalendar) },
                             // F.16 — silences output only; the alarm is untouched,
-                            // so no userActionTaken / resolveSent here.
+                            // so no userActionTaken / resolveSent here. Round 26:
+                            // the service also puts the auto-dismiss countdown
+                            // back to full when it handles this.
                             onQuiet = { AlarmService.silenceAlarm(applicationContext) },
+                            // Round 26 — a snooze picker is open, so hold the
+                            // service's countdown until it closes. Without this
+                            // the alarm resolves itself out from under the
+                            // dialog the user is still filling in.
+                            onAutoDismissPause = {
+                                AlarmService.pauseAutoDismiss(applicationContext)
+                            },
+                            onAutoDismissResume = {
+                                AlarmService.resumeAutoDismiss(applicationContext)
+                            },
                             // The AlarmService owns auto-dismiss; it resolves the alarm
                             // and either closes this screen or shows the next one.
                             onAutoDismissTimeout = { }
@@ -168,8 +179,21 @@ class AlarmActivity : ComponentActivity() {
      * recents did not). `onStop` fires whichever way the activity is backgrounded,
      * so it is the reliable backstop.
      */
+    /**
+     * Round 27 — tells the service the alarm is on screen, so its notification
+     * can drop the full-screen intent and stop drawing a heads-up banner over
+     * the takeover the user is already looking at.
+     */
+    override fun onStart() {
+        super.onStart()
+        AlarmService.takeoverShown(applicationContext)
+    }
+
     override fun onStop() {
         super.onStop()
+        // The service re-arms the full-screen intent shortly after this, unless
+        // the relaunch below puts us back first.
+        AlarmService.takeoverGone(applicationContext)
         reassertTakeover()
     }
 
@@ -214,15 +238,10 @@ class AlarmActivity : ComponentActivity() {
         // notification brings the user back.
     }
 
-    private fun currentAutoDismissSeconds(): Int {
-        val audioManager = getSystemService(AudioManager::class.java)
-        val ringerMode = when (audioManager.ringerMode) {
-            AudioManager.RINGER_MODE_NORMAL  -> RingerMode.SOUND_ON
-            AudioManager.RINGER_MODE_VIBRATE -> RingerMode.VIBRATE
-            else                             -> RingerMode.SILENT
-        }
-        return AppPrefs.getSoundProfile(applicationContext, ringerMode).autoDismissSeconds
-    }
+    private fun currentAutoDismissSeconds(): Int =
+        AppPrefs.getSoundProfile(
+            applicationContext, RingerModes.current(applicationContext)
+        ).autoDismissSeconds
 
     /**
      * Hands the alarm back to the service. The service decides what happens to

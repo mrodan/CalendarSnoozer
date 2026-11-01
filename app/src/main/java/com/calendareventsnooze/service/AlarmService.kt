@@ -13,19 +13,22 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.os.Vibrator
 import androidx.core.app.NotificationCompat
+import com.calendareventsnooze.R
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.AutoDismissAction
-import com.calendareventsnooze.model.MissedAlarmRecord
-import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.scheduler.AlarmScheduler
 import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.ui.MainActivity
+import com.calendareventsnooze.util.formatEventTime
 import com.calendareventsnooze.util.getAlarmEvent
+import com.calendareventsnooze.util.ObservanceCalendar
+import com.calendareventsnooze.util.RingerModes
 import com.calendareventsnooze.util.play
 import com.calendareventsnooze.util.putAlarmEvent
 import com.calendareventsnooze.util.vibratorOf
@@ -50,16 +53,58 @@ class AlarmService : Service() {
 
         /**
          * F.16 — "Shhhh": silences sound and vibration but leaves the alarm
-         * itself running. The takeover stays up, the notification stays put and
-         * the auto-snooze countdown keeps ticking.
+         * itself running. The takeover stays up and the notification stays put.
+         *
+         * Round 26 — it now also restarts the auto-dismiss countdown. "Shhhh"
+         * means "not yet, give me a moment", and the old behaviour let the
+         * countdown run out seconds later and file the alarm as missed, which
+         * is the opposite of what the user just asked for.
          */
         const val ACTION_SILENCE = "com.calendareventsnooze.ACTION_SILENCE"
 
+        /**
+         * Round 26 — holds the auto-dismiss countdown while a snooze picker is
+         * open on the takeover, and lets it continue from where it stopped when
+         * the picker closes. Choosing a snooze time takes longer than the 30-
+         * or 60-second countdown allows, so without this the alarm resolved
+         * itself out from under the dialog.
+         */
+        const val ACTION_AUTO_DISMISS_PAUSE = "com.calendareventsnooze.ACTION_AD_PAUSE"
+        const val ACTION_AUTO_DISMISS_RESUME = "com.calendareventsnooze.ACTION_AD_RESUME"
+
+        /**
+         * Round 27 — the takeover tells the service when it is on screen, so
+         * the notification can stop announcing an alarm the user is already
+         * looking at. See [fullScreenEscalated].
+         */
+        const val ACTION_TAKEOVER_SHOWN = "com.calendareventsnooze.ACTION_TAKEOVER_SHOWN"
+        const val ACTION_TAKEOVER_GONE = "com.calendareventsnooze.ACTION_TAKEOVER_GONE"
+
+        /**
+         * How long the takeover gets to appear before the notification falls
+         * back to a full-screen intent. Long enough that a normal launch — or
+         * B.1's relaunch after a Home press — wins the race and no banner is
+         * ever drawn; short enough to be unnoticeable when the launch really
+         * was blocked and the intent is the only way onto the screen.
+         */
+        private const val FULL_SCREEN_ESCALATION_MS = 1500L
+
+        fun takeoverShown(context: Context) = send(context, ACTION_TAKEOVER_SHOWN)
+        fun takeoverGone(context: Context) = send(context, ACTION_TAKEOVER_GONE)
+
         /** Silences the current alarm's output without resolving it (F.16). */
-        fun silenceAlarm(context: Context) {
+        fun silenceAlarm(context: Context) = send(context, ACTION_SILENCE)
+
+        /** Round 26 — freeze the auto-dismiss countdown (a picker is open). */
+        fun pauseAutoDismiss(context: Context) = send(context, ACTION_AUTO_DISMISS_PAUSE)
+
+        /** Round 26 — let it run on from where [pauseAutoDismiss] stopped it. */
+        fun resumeAutoDismiss(context: Context) = send(context, ACTION_AUTO_DISMISS_RESUME)
+
+        private fun send(context: Context, action: String) {
             runCatching {
                 context.startService(
-                    Intent(context, AlarmService::class.java).setAction(ACTION_SILENCE)
+                    Intent(context, AlarmService::class.java).setAction(action)
                 )
             }
         }
@@ -79,12 +124,20 @@ class AlarmService : Service() {
         const val EXTRA_ALARM_ID = "ces_resolved_alarm_id"
         const val ACTIVE_ALARM_NOTIF_ID = 1002
 
+        /** Round 27 — the escalation alert; see [buildFullScreenAlert]. */
+        const val FULL_SCREEN_ALERT_ID = 1003
+
         /** Volume steps per second while fading in (F.10). */
         private const val FADE_STEPS_PER_SECOND = 10
 
         fun cancelActiveAlarmNotification(context: Context) {
-            context.getSystemService(NotificationManager::class.java)
-                .cancel(ACTIVE_ALARM_NOTIF_ID)
+            context.getSystemService(NotificationManager::class.java).apply {
+                cancel(ACTIVE_ALARM_NOTIF_ID)
+                // Round 27 — the escalation alert outlives the service if it is
+                // not cleared here; it is a plain notification, not the
+                // foreground one, so stopForeground does not take it.
+                cancel(FULL_SCREEN_ALERT_ID)
+            }
         }
 
         /** The user acted on [alarmId]; hand control back to any alarm beneath it. */
@@ -134,6 +187,51 @@ class AlarmService : Service() {
     /** F.16 — the user hit "Shhhh"; suppress output without ending the alarm. */
     private var silenced = false
 
+    // ------------------------------------------------------------------
+    // Auto-dismiss countdown state (round 26)
+    //
+    // It used to be an anonymous lambda posted to [handler], which could only be
+    // cancelled by clearing the whole queue — and that queue also carries the
+    // sequencing and per-output delays. Holding the Runnable means the countdown
+    // can be paused, resumed and restarted on its own.
+    // ------------------------------------------------------------------
+
+    private var autoDismissRunnable: Runnable? = null
+    /** elapsedRealtime at which the pending countdown fires. */
+    private var autoDismissDeadlineMs = 0L
+    /** Non-null only while paused: what was left when it stopped. */
+    private var autoDismissRemainingMs: Long? = null
+    /** What the countdown would act on — kept so it can be re-armed. */
+    private var autoDismissProfile: SoundProfile? = null
+    private var autoDismissEvent: AlarmEvent? = null
+
+    // ------------------------------------------------------------------
+    // Getting the takeover on screen without announcing it twice (round 27)
+    // ------------------------------------------------------------------
+
+    /** True while AlarmActivity reports itself started. */
+    private var takeoverVisible = false
+
+    /**
+     * Whether the notification currently carries a full-screen intent.
+     *
+     * The intent is what the heads-up banner is made of. A foreground service
+     * must post *some* notification, and this one must stay IMPORTANCE_HIGH so
+     * the intent can fire — but a silent high-importance notification with no
+     * full-screen intent does not produce a banner, so the banner can be
+     * removed without weakening anything by attaching the intent only when it
+     * is actually needed: when the takeover is **not** already on screen.
+     *
+     * Every caller launches AlarmActivity directly in the same breath as
+     * starting the service, so the normal path never needs it. It is the
+     * backstop for a launch the system refused.
+     */
+    private var fullScreenEscalated = false
+    private var escalationRunnable: Runnable? = null
+
+    /** Round 28 — ends a ringing alarm the moment Shabbat or Yom Tov begins. */
+    private var observanceCutoff: Runnable? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -146,12 +244,39 @@ class AlarmService : Service() {
                 return START_STICKY
             }
             ACTION_SILENCE -> {
-                // F.16 — deliberately does NOT touch the handler queue: the
-                // auto-snooze countdown must survive. `silenced` instead makes
-                // any pending delayed start (sequencing, per-output delay) a
-                // no-op when it fires.
+                // F.16 — deliberately does NOT clear the handler queue: it also
+                // carries the sequencing and per-output delays, and `silenced`
+                // is what makes those a no-op when they fire.
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
                 silenced = true
                 stopSoundAndVibration()
+                // Round 26 — "Shhhh" buys time, so give the user the full
+                // countdown again rather than the seconds that were left.
+                restartAutoDismiss()
+                return START_STICKY
+            }
+            ACTION_AUTO_DISMISS_PAUSE -> {
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+                pauseAutoDismissNow()
+                return START_STICKY
+            }
+            ACTION_AUTO_DISMISS_RESUME -> {
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+                resumeAutoDismissNow()
+                return START_STICKY
+            }
+            ACTION_TAKEOVER_SHOWN -> {
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+                takeoverVisible = true
+                // Also takes down the alert if the escalation had already
+                // posted one — the user is looking at the takeover now.
+                cancelFullScreenEscalation()
+                return START_STICKY
+            }
+            ACTION_TAKEOVER_GONE -> {
+                if (alarmStack.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+                takeoverVisible = false
+                scheduleFullScreenEscalation()
                 return START_STICKY
             }
             ACTION_REASSERT_NOTIFICATION -> {
@@ -220,15 +345,157 @@ class AlarmService : Service() {
             }
         }
 
+        // Round 27 — a fresh alarm needs no full-screen intent, because the
+        // caller has just launched the takeover itself. If it does not appear,
+        // the escalation posts one. An alarm interrupting one already on screen
+        // (B.6) needs no escalation at all.
+        if (takeoverVisible) cancelFullScreenEscalation() else scheduleFullScreenEscalation()
+
         val profile = currentProfile()
         startAlarmOutput(profile)
 
-        if (profile.autoDismissSeconds > 0) {
-            handler.postDelayed(
-                { handleAutoDismiss(profile, alarmEvent) },
-                profile.autoDismissSeconds * 1000L
-            )
+        autoDismissProfile = profile
+        autoDismissEvent = alarmEvent
+        scheduleAutoDismiss(profile.autoDismissSeconds * 1000L)
+        scheduleObservanceCutoff()
+    }
+
+    /**
+     * Round 28 — an alarm still ringing at candle lighting must not ring on.
+     * Whatever is on the stack goes to Missed Alarms silently, the same as a
+     * snooze coming due during Shabbat or Yom Tov.
+     */
+    private fun scheduleObservanceCutoff() {
+        cancelObservanceCutoff()
+        val now = System.currentTimeMillis()
+        val start = ObservanceCalendar.nextStartAfter(applicationContext, now) ?: return
+        val cutoff = Runnable {
+            observanceCutoff = null
+            if (ObservanceCalendar.isSilenced(applicationContext, System.currentTimeMillis())) {
+                endAlarmsForObservance()
+            }
         }
+        observanceCutoff = cutoff
+        handler.postDelayed(cutoff, start - now)
+    }
+
+    private fun cancelObservanceCutoff() {
+        observanceCutoff?.let { handler.removeCallbacks(it) }
+        observanceCutoff = null
+    }
+
+    private fun endAlarmsForObservance() {
+        silenceCurrentOutput()
+        val last = alarmStack.lastOrNull()?.alarmId
+        alarmStack.forEach { AlarmScheduler.fileAsMissed(applicationContext, it) }
+        alarmStack.clear()
+        tearDown(last)
+    }
+
+    /**
+     * Arms the fallback: if the takeover has not appeared shortly, post the
+     * full-screen-intent notification so the alarm still reaches the screen.
+     */
+    private fun scheduleFullScreenEscalation() {
+        cancelFullScreenEscalation()
+        val runnable = Runnable {
+            escalationRunnable = null
+            val top = alarmStack.lastOrNull()
+            if (takeoverVisible || top == null) return@Runnable
+            fullScreenEscalated = true
+            runCatching {
+                getSystemService(NotificationManager::class.java)
+                    .notify(FULL_SCREEN_ALERT_ID, buildFullScreenAlert(top))
+            }
+        }
+        escalationRunnable = runnable
+        handler.postDelayed(runnable, FULL_SCREEN_ESCALATION_MS)
+    }
+
+    /** Un-arms the fallback and takes down the alert if it was posted. */
+    private fun cancelFullScreenEscalation() {
+        escalationRunnable?.let { handler.removeCallbacks(it) }
+        escalationRunnable = null
+        if (fullScreenEscalated) {
+            fullScreenEscalated = false
+            runCatching {
+                getSystemService(NotificationManager::class.java)
+                    .cancel(FULL_SCREEN_ALERT_ID)
+            }
+        }
+    }
+
+    /**
+     * The one notification that is allowed to interrupt: it exists only when
+     * the takeover could not get on screen by itself, and a full-screen intent
+     * needs a high-importance channel to fire. It is cancelled the moment the
+     * takeover reports in, so in the normal case it is never posted at all.
+     */
+    private fun buildFullScreenAlert(alarmEvent: AlarmEvent): Notification {
+        val pi = alarmPendingIntent(alarmEvent)
+        return NotificationCompat.Builder(this, "ces_alarm_active")
+            .setContentTitle("⚠ Calendar Alarm Active")
+            .setContentText(alarmEvent.eventTitle.ifBlank { "Tap to open the alarm" })
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentIntent(pi)
+            .setFullScreenIntent(pi, true)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
+    }
+
+    // ------------------------------------------------------------------
+    // Auto-dismiss countdown (round 26)
+    // ------------------------------------------------------------------
+
+    /** Arms the countdown to fire in [delayMs]. Replaces any pending one. */
+    private fun scheduleAutoDismiss(delayMs: Long) {
+        cancelAutoDismiss()
+        val profile = autoDismissProfile ?: return
+        val alarmEvent = autoDismissEvent ?: return
+        if (profile.autoDismissSeconds <= 0 || delayMs <= 0L) return
+        val runnable = Runnable {
+            autoDismissRunnable = null
+            handleAutoDismiss(profile, alarmEvent)
+        }
+        autoDismissRunnable = runnable
+        autoDismissDeadlineMs = SystemClock.elapsedRealtime() + delayMs
+        handler.postDelayed(runnable, delayMs)
+    }
+
+    /** Un-arms the countdown without forgetting which alarm it belonged to. */
+    private fun cancelAutoDismiss() {
+        autoDismissRunnable?.let { handler.removeCallbacks(it) }
+        autoDismissRunnable = null
+        autoDismissRemainingMs = null
+    }
+
+    /** Freezes the countdown with whatever time was left on it. */
+    private fun pauseAutoDismissNow() {
+        val runnable = autoDismissRunnable ?: return  // not armed, or already paused
+        handler.removeCallbacks(runnable)
+        autoDismissRunnable = null
+        autoDismissRemainingMs =
+            (autoDismissDeadlineMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+    }
+
+    /** Continues a paused countdown from where it stopped. */
+    private fun resumeAutoDismissNow() {
+        val remaining = autoDismissRemainingMs ?: return  // never paused
+        autoDismissRemainingMs = null
+        // A countdown paused with nothing left would fire the instant it
+        // resumed, which reads as the dialog's own Cancel dismissing the alarm.
+        // Give it a second's grace instead.
+        scheduleAutoDismiss(remaining.coerceAtLeast(1000L))
+    }
+
+    /** Puts the full countdown back on the clock ("Shhhh"). */
+    private fun restartAutoDismiss() {
+        val seconds = autoDismissProfile?.autoDismissSeconds ?: return
+        scheduleAutoDismiss(seconds * 1000L)
     }
 
     /**
@@ -250,6 +517,14 @@ class AlarmService : Service() {
     /** Silences audio/vibration and cancels any pending auto-dismiss. */
     private fun silenceCurrentOutput() {
         handler.removeCallbacksAndMessages(null)
+        // Clearing the queue already un-posted the countdown; forget the alarm
+        // it belonged to as well, or a later pause/resume could re-arm it for an
+        // alarm that has been resolved.
+        cancelAutoDismiss()
+        autoDismissProfile = null
+        autoDismissEvent = null
+        cancelFullScreenEscalation()
+        cancelObservanceCutoff()
         stopSoundAndVibration()
     }
 
@@ -297,15 +572,8 @@ class AlarmService : Service() {
         }
     }
 
-    private fun currentProfile(): SoundProfile {
-        val audioManager = getSystemService(AudioManager::class.java)
-        val ringerMode = when (audioManager.ringerMode) {
-            AudioManager.RINGER_MODE_NORMAL  -> RingerMode.SOUND_ON
-            AudioManager.RINGER_MODE_VIBRATE -> RingerMode.VIBRATE
-            else                             -> RingerMode.SILENT
-        }
-        return AppPrefs.getSoundProfile(applicationContext, ringerMode)
-    }
+    private fun currentProfile(): SoundProfile =
+        AppPrefs.getSoundProfile(applicationContext, RingerModes.current(applicationContext))
 
     // ------------------------------------------------------------------
     // Notification
@@ -341,13 +609,18 @@ class AlarmService : Service() {
         val waiting = alarmStack.size - 1
         val subText = if (waiting > 0) "+$waiting more alarm${if (waiting > 1) "s" else ""} waiting"
                       else null
-        val notification = NotificationCompat.Builder(this, "ces_alarm_active")
+        // Round 27 — the low-importance channel, and no full-screen intent. Both
+        // are needed: a high-importance notification raises a heads-up banner
+        // over the takeover whether or not it carries an intent (measured — a
+        // build that only dropped the intent still banner-ed). The full-screen
+        // intent now lives on its own notification, posted only when the
+        // takeover has failed to appear. See [fullScreenEscalated].
+        val notification = NotificationCompat.Builder(this, "ces_alarm_ongoing")
             .setContentTitle("⚠ Calendar Alarm Active")
             .setContentText(alarmEvent.eventTitle.ifBlank { "Tap to open the alarm" })
             .setSubText(subText)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentIntent(pi)
-            .setFullScreenIntent(pi, true)
             .setOngoing(true)
             .setAutoCancel(false)
             .setDeleteIntent(reassertPendingIntent())
@@ -356,7 +629,9 @@ class AlarmService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
-        // B.6 — three layers, because none of them is sufficient alone:
+        // B.6 — three layers, because none of them is sufficient alone (round 27:
+        // these still hold on the low-importance channel; importance governs the
+        // banner, not dismissibility):
         // ongoing hides the swipe affordance, NO_CLEAR survives "Clear all", and
         // the delete intent re-posts if the system lets it through anyway
         // (Android 13+ allows dismissing foreground-service notifications).
@@ -511,21 +786,23 @@ class AlarmService : Service() {
     }
 
     /**
-     * F.15 — files an alarm the user never acted on into the Missed list. Also
-     * clears its snooze record, so it appears in exactly one of the two.
+     * F.15 — files an alarm the user never acted on into the Missed list.
+     *
+     * Round 26 — and tells the user, every time. The notification used to be
+     * posted by two of the three call sites in [handleAutoDismiss] and not by
+     * Force Stop, so alarms could land in the Missed list with nothing on screen
+     * to say so. Posting it from here makes "recorded as missed" and "the user
+     * was told" the same event, and any future path that files a missed alarm
+     * gets the notification for free.
+     *
+     * Round 28 — the one exception is during Shabbat or Yom Tov, when only a
+     * test alarm can reach here and nothing should make a sound.
      */
     private fun recordMissed(alarmEvent: AlarmEvent) {
-        AppPrefs.saveMissedAlarm(
-            applicationContext,
-            MissedAlarmRecord(
-                alarmId     = alarmEvent.alarmId,
-                eventTitle  = alarmEvent.eventTitle,
-                eventText   = alarmEvent.eventText,
-                eventId     = alarmEvent.eventId,
-                eventTimeMs = alarmEvent.eventTimeMs,
-                missedAtMs  = System.currentTimeMillis()
-            )
-        )
+        AlarmScheduler.fileAsMissed(applicationContext, alarmEvent)
+        if (!ObservanceCalendar.isSilenced(applicationContext, System.currentTimeMillis())) {
+            showMissedNotification(alarmEvent)
+        }
     }
 
     // ------------------------------------------------------------------
@@ -538,7 +815,6 @@ class AlarmService : Service() {
             profile.autoDismissAction == AutoDismissAction.DISMISS) {
             AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
             recordMissed(alarmEvent)
-            showMissedNotification(alarmEvent.eventTitle)
             resolveAndAdvance(alarmEvent.alarmId)
             return
         }
@@ -550,7 +826,6 @@ class AlarmService : Service() {
             // Max retries exceeded — dismiss completely
             AppPrefs.resetAutoSnoozeCount(applicationContext, alarmEvent.alarmId)
             recordMissed(alarmEvent)
-            showMissedNotification(alarmEvent.eventTitle)
         } else {
             // Auto-snooze — schedule and save to snoozed list
             val snoozeMs = System.currentTimeMillis() +
@@ -569,7 +844,7 @@ class AlarmService : Service() {
         resolveAndAdvance(alarmEvent.alarmId)
     }
 
-    private fun showMissedNotification(title: String) {
+    private fun showMissedNotification(alarmEvent: AlarmEvent) {
         // F.17 — the notification had no content intent, so tapping it did
         // nothing at all. It now opens the Home tab, which is where the alarm
         // it is telling the user about has just been filed (F.15).
@@ -582,15 +857,32 @@ class AlarmService : Service() {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val title = alarmEvent.eventTitle.ifBlank { "Calendar event" }
+        // The event's own day and time, not when it was given up on: "Missed
+        // Alarm: Dentist / Today at 3:00 PM" is what identifies which reminder
+        // went by. The event's description comes first when it has one.
+        val detail = listOfNotNull(
+            alarmEvent.eventText.takeIf { it.isNotBlank() },
+            formatEventTime(alarmEvent.eventTimeMs)
+        ).joinToString("  ·  ")
         val notif = NotificationCompat.Builder(this, "ces_missed")
-            .setContentTitle("Missed Calendar Alarm")
-            .setContentText(title)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Missed Alarm: $title")
+            .setContentText(detail)
+            // Long event descriptions are cut off on one line, so let the
+            // expanded notification show the whole thing.
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(open)
             .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setWhen(alarmEvent.eventTimeMs.takeIf { it > 0L } ?: System.currentTimeMillis())
+            .setShowWhen(true)
             .build()
+        // Keyed on the alarm, not the clock: an alarm that is auto-snoozed and
+        // then missed again replaces its own notification instead of stacking a
+        // second copy for the same event.
         getSystemService(NotificationManager::class.java)
-            .notify(System.currentTimeMillis().toInt(), notif)
+            .notify(alarmEvent.alarmId.hashCode(), notif)
     }
 
     override fun onDestroy() {

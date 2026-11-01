@@ -2,16 +2,19 @@ package com.calendareventsnooze.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -49,6 +52,15 @@ import com.calendareventsnooze.util.formatScheduledTime
 // F.4 — every action button in the Manage sheet shares one height.
 private val MANAGE_BUTTON_HEIGHT = 56.dp
 
+// Round 26 — the list rows' Manage button, 20% narrower than the width it sizes
+// itself to (the "Manage" label plus M3's 24dp of padding either side). It is
+// pinned rather than reduced via contentPadding so the two lists cannot drift
+// apart, and so the X beside it always lands in the same place.
+private val ROW_MANAGE_WIDTH = 80.dp
+
+// The quick-action X: a square button matching the row's button height.
+private val ROW_ICON_BUTTON_SIZE = 40.dp
+
 /**
  * UI.4 — the snoozed-alarm list, rendered as plain rows so it can live inside
  * the Home tab's scrolling column (a LazyColumn cannot nest in a parent that
@@ -57,8 +69,18 @@ private val MANAGE_BUTTON_HEIGHT = 56.dp
 @Composable
 fun SnoozedAlarmsSection(
     alarms: List<SnoozedAlarmRecord>,
-    onManage: (SnoozedAlarmRecord) -> Unit
+    onManage: (SnoozedAlarmRecord) -> Unit,
+    // Round 26 — the row's X cancels the snooze outright, so the list has to be
+    // rebuilt afterwards. Home owns the list, so it owns the refresh.
+    onRemoved: () -> Unit
 ) {
+    val context = LocalContext.current
+    // Round 26 — the X is the Manage sheet's CANCEL SNOOZE without the sheet,
+    // confirmation included: it sits a few millimetres from Manage, and a
+    // mis-tap that silently cancelled a real alarm would be invisible until the
+    // reminder never arrived.
+    var confirming by remember { mutableStateOf<SnoozedAlarmRecord?>(null) }
+
     // UI.12 — a rule between every pair of alarms. UI.27 dropped the one that
     // used to sit under the heading: the heading now has its own tonal band.
     if (alarms.isEmpty()) {
@@ -93,13 +115,73 @@ fun SnoozedAlarmsSection(
                 )
             }
             Spacer(Modifier.size(Spacing.md))
-            FilledTonalButton(onClick = { onManage(record) }) {
-                Text("Manage", style = MaterialTheme.typography.labelLarge)
-            }
+            RowActions(
+                removeDescription = "Cancel snooze",
+                onRemove = { confirming = record },
+                onManage = { onManage(record) }
+            )
         }
         if (index != alarms.lastIndex) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
+    }
+
+    confirming?.let { record ->
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            title = { Text("Cancel snooze") },
+            text = { Text("Cancel this alarm? The event will not remind you again.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirming = null
+                    AlarmScheduler.cancelAlarm(context, record.alarmId)
+                    AppPrefs.removeSnoozedAlarm(context, record.alarmId)
+                    onRemoved()
+                }) { Text("Yes, cancel") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = null }) { Text("Keep") }
+            }
+        )
+    }
+}
+
+/**
+ * Round 26 — the trailing controls on a list row: the quick X, then Manage.
+ *
+ * The X carries the Force Stop colours (the M3 **error** roles), because like
+ * Force Stop it is the destructive shortcut on a screen whose other buttons are
+ * not, and it takes the takeover's Dismiss glyph for the same reason.
+ */
+@Composable
+private fun RowActions(
+    removeDescription: String,
+    onRemove: () -> Unit,
+    onManage: () -> Unit
+) {
+    Button(
+        onClick = onRemove,
+        modifier = Modifier.size(ROW_ICON_BUTTON_SIZE),
+        shape = MaterialTheme.shapes.large,
+        contentPadding = PaddingValues(0.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer
+        )
+    ) {
+        Icon(
+            Icons.Outlined.Close,
+            contentDescription = removeDescription,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+    Spacer(Modifier.size(Spacing.sm))
+    FilledTonalButton(
+        onClick = onManage,
+        modifier = Modifier.width(ROW_MANAGE_WIDTH),
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Text("Manage", style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -111,8 +193,12 @@ fun SnoozedAlarmsSection(
 @Composable
 fun MissedAlarmsSection(
     alarms: List<MissedAlarmRecord>,
-    onManage: (MissedAlarmRecord) -> Unit
+    onManage: (MissedAlarmRecord) -> Unit,
+    onRemoved: () -> Unit
 ) {
+    val context = LocalContext.current
+    var confirming by remember { mutableStateOf<MissedAlarmRecord?>(null) }
+
     if (alarms.isEmpty()) {
         Text(
             "No missed alarms",
@@ -145,13 +231,33 @@ fun MissedAlarmsSection(
                 )
             }
             Spacer(Modifier.size(Spacing.md))
-            FilledTonalButton(onClick = { onManage(record) }) {
-                Text("Manage", style = MaterialTheme.typography.labelLarge)
-            }
+            RowActions(
+                removeDescription = "Remove from list",
+                onRemove = { confirming = record },
+                onManage = { onManage(record) }
+            )
         }
         if (index != alarms.lastIndex) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
+    }
+
+    confirming?.let { record ->
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            title = { Text("Remove from list") },
+            text = { Text("Remove this missed alarm? The event itself is untouched.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirming = null
+                    AppPrefs.removeMissedAlarm(context, record.alarmId)
+                    onRemoved()
+                }) { Text("Yes, remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = null }) { Text("Keep") }
+            }
+        )
     }
 }
 

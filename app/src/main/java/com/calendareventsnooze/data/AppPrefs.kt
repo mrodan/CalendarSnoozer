@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.calendareventsnooze.model.AlarmScreenStyle
 import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.MissedAlarmRecord
+import com.calendareventsnooze.model.ObservanceCity
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.model.SilentHours
@@ -30,6 +31,16 @@ object AppPrefs {
     private const val KEY_SILENT_HOURS = "silent_hours"
     private const val KEY_LAST_SEEN_PACKAGE = "last_seen_package"
     private const val KEY_LAST_SEEN_AT = "last_seen_at"
+    private const val KEY_SEEN_NOTIFICATIONS = "seen_notifications"
+    private const val KEY_INTERCEPTION_LOG = "interception_log"
+    private const val KEY_IGNORED_CALENDAR_ACCOUNTS = "ignored_calendar_accounts"
+    private const val KEY_OBSERVANCE_CITY = "observance_city"
+
+    /** How long an identical notification counts as a repeat (round 27). */
+    private const val SEEN_RETENTION_MS = 30L * 60 * 1000
+
+    /** Entries kept in the diagnostic interception log (round 27). */
+    private const val INTERCEPTION_LOG_SIZE = 30
 
     private val gson = Gson()
 
@@ -378,6 +389,107 @@ object AppPrefs {
         val pkg = prefs(ctx).getString(KEY_LAST_SEEN_PACKAGE, null) ?: return null
         val at = prefs(ctx).getLong(KEY_LAST_SEEN_AT, 0L)
         return if (at > 0L) pkg to at else null
+    }
+
+    // ---------------------------------------------------------------------
+    // Round 27 — notification de-duplication and the interception log
+    // ---------------------------------------------------------------------
+
+    /**
+     * Claims [fingerprint] for this listener, returning false if the identical
+     * notification has already been acted on recently.
+     *
+     * `onNotificationPosted` fires for every *update* to a notification as well
+     * as for new ones, and Google Calendar updates a reminder in place as the
+     * event approaches. Without this, one reminder could raise several alarms.
+     */
+    fun claimNotification(ctx: Context, fingerprint: String): Boolean {
+        val now = System.currentTimeMillis()
+        val seen = readSeenMap(ctx)
+        val previous = seen[fingerprint]
+        // Drop entries old enough that an identical notification is genuinely a
+        // new reminder rather than a repeat — a daily event at the same time
+        // differs in its event time, so it never collides anyway.
+        val pruned = seen.filterValues { now - it < SEEN_RETENTION_MS }.toMutableMap()
+        pruned[fingerprint] = now
+        writeSeenMap(ctx, pruned)
+        return previous == null || now - previous >= SEEN_RETENTION_MS
+    }
+
+    private fun readSeenMap(ctx: Context): Map<String, Long> {
+        val json = prefs(ctx).getString(KEY_SEEN_NOTIFICATIONS, null) ?: return emptyMap()
+        return runCatching {
+            val type = object : TypeToken<MutableMap<String, Long>>() {}.type
+            gson.fromJson<MutableMap<String, Long>>(json, type) ?: emptyMap()
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun writeSeenMap(ctx: Context, map: Map<String, Long>) {
+        prefs(ctx).edit().putString(KEY_SEEN_NOTIFICATIONS, gson.toJson(map)).apply()
+    }
+
+    /**
+     * A rolling record of what the listener did with each notification from a
+     * watched app, newest first.
+     *
+     * Deliberately has no UI. Its one job is to make the next "ghost alarm"
+     * report answerable: round 27 was diagnosed from a screenshot of a takeover
+     * with no title, which narrowed the cause to about four candidates and
+     * proved none of them. This is read off the device with
+     * `adb shell run-as com.calendareventsnooze cat .../ces_prefs.xml`.
+     */
+    fun logInterception(ctx: Context, packageName: String, title: String, outcome: String) {
+        val entry = "${System.currentTimeMillis()}|$packageName|$outcome|" +
+            title.take(60).replace('\n', ' ')
+        val log = (listOf(entry) + readInterceptionLog(ctx)).take(INTERCEPTION_LOG_SIZE)
+        prefs(ctx).edit().putString(KEY_INTERCEPTION_LOG, gson.toJson(log)).apply()
+    }
+
+    fun readInterceptionLog(ctx: Context): List<String> {
+        val json = prefs(ctx).getString(KEY_INTERCEPTION_LOG, null) ?: return emptyList()
+        return runCatching {
+            val type = object : TypeToken<List<String>>() {}.type
+            gson.fromJson<List<String>>(json, type) ?: emptyList()
+        }.getOrDefault(emptyList())
+    }
+
+    // ---------------------------------------------------------------------
+    // Round 27 — which calendar accounts are watched
+    // ---------------------------------------------------------------------
+
+    /**
+     * Accounts the user has switched **off**, stored as the exclusions rather
+     * than the inclusions on purpose.
+     *
+     * An existing install has no value here, and a phone that gains a second
+     * Google account later has no value for it either. Storing the watched set
+     * would make both of those mean "watch nothing", silently; storing the
+     * ignored set makes them mean "watch everything", which is what the app did
+     * before and the safe answer for an alarm.
+     */
+    fun getIgnoredCalendarAccounts(ctx: Context): Set<String> =
+        prefs(ctx).getStringSet(KEY_IGNORED_CALENDAR_ACCOUNTS, emptySet()) ?: emptySet()
+
+    fun setCalendarAccountWatched(ctx: Context, accountName: String, watched: Boolean) {
+        val ignored = getIgnoredCalendarAccounts(ctx).toMutableSet()
+        if (watched) ignored.remove(accountName) else ignored.add(accountName)
+        prefs(ctx).edit()
+            .putStringSet(KEY_IGNORED_CALENDAR_ACCOUNTS, ignored)
+            .apply()
+    }
+
+    // ---------------------------------------------------------------------
+    // Round 28 — Shabbat & Yom Tov Mode
+    // ---------------------------------------------------------------------
+
+    /** The selected city, or null when the mode is off. */
+    fun getObservanceCity(ctx: Context): ObservanceCity? {
+        val name = prefs(ctx).getString(KEY_OBSERVANCE_CITY, null) ?: return null
+        return runCatching { ObservanceCity.valueOf(name) }.getOrNull()
+    }
+
+    fun setObservanceCity(ctx: Context, city: ObservanceCity?) {
+        prefs(ctx).edit().putString(KEY_OBSERVANCE_CITY, city?.name).apply()
     }
 
     // ---------------------------------------------------------------------
