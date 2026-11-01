@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import com.calendareventsnooze.model.AlarmScreenStyle
 import com.calendareventsnooze.model.AutoDismissAction
 import com.calendareventsnooze.model.MissedAlarmRecord
+import com.calendareventsnooze.model.ObservanceCity
 import com.calendareventsnooze.model.RingerMode
 import com.calendareventsnooze.model.SnoozePreset
 import com.calendareventsnooze.model.SilentHours
@@ -33,6 +34,7 @@ object AppPrefs {
     private const val KEY_SEEN_NOTIFICATIONS = "seen_notifications"
     private const val KEY_INTERCEPTION_LOG = "interception_log"
     private const val KEY_IGNORED_CALENDAR_ACCOUNTS = "ignored_calendar_accounts"
+    private const val KEY_OBSERVANCE_CITY = "observance_city"
 
     /** How long an identical notification counts as a repeat (round 27). */
     private const val SEEN_RETENTION_MS = 30L * 60 * 1000
@@ -474,6 +476,20 @@ object AppPrefs {
         prefs(ctx).edit()
             .putStringSet(KEY_IGNORED_CALENDAR_ACCOUNTS, ignored)
             .apply()
+    }
+
+    // ---------------------------------------------------------------------
+    // Round 28 — Shabbat & Yom Tov Mode
+    // ---------------------------------------------------------------------
+
+    /** The selected city, or null when the mode is off. */
+    fun getObservanceCity(ctx: Context): ObservanceCity? {
+        val name = prefs(ctx).getString(KEY_OBSERVANCE_CITY, null) ?: return null
+        return runCatching { ObservanceCity.valueOf(name) }.getOrNull()
+    }
+
+    fun setObservanceCity(ctx: Context, city: ObservanceCity?) {
+        prefs(ctx).edit().putString(KEY_OBSERVANCE_CITY, city?.name).apply()
     }
 
     // ---------------------------------------------------------------------
