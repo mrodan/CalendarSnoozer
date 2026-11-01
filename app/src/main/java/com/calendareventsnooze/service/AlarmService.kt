@@ -20,7 +20,6 @@ import com.calendareventsnooze.R
 import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.model.AutoDismissAction
-import com.calendareventsnooze.model.MissedAlarmRecord
 import com.calendareventsnooze.model.SnoozedAlarmRecord
 import com.calendareventsnooze.model.SoundProfile
 import com.calendareventsnooze.scheduler.AlarmScheduler
@@ -28,6 +27,7 @@ import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.ui.MainActivity
 import com.calendareventsnooze.util.formatEventTime
 import com.calendareventsnooze.util.getAlarmEvent
+import com.calendareventsnooze.util.ObservanceCalendar
 import com.calendareventsnooze.util.RingerModes
 import com.calendareventsnooze.util.play
 import com.calendareventsnooze.util.putAlarmEvent
@@ -229,6 +229,9 @@ class AlarmService : Service() {
     private var fullScreenEscalated = false
     private var escalationRunnable: Runnable? = null
 
+    /** Round 28 — ends a ringing alarm the moment Shabbat or Yom Tov begins. */
+    private var observanceCutoff: Runnable? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -354,6 +357,39 @@ class AlarmService : Service() {
         autoDismissProfile = profile
         autoDismissEvent = alarmEvent
         scheduleAutoDismiss(profile.autoDismissSeconds * 1000L)
+        scheduleObservanceCutoff()
+    }
+
+    /**
+     * Round 28 — an alarm still ringing at candle lighting must not ring on.
+     * Whatever is on the stack goes to Missed Alarms silently, the same as a
+     * snooze coming due during Shabbat or Yom Tov.
+     */
+    private fun scheduleObservanceCutoff() {
+        cancelObservanceCutoff()
+        val now = System.currentTimeMillis()
+        val start = ObservanceCalendar.nextStartAfter(applicationContext, now) ?: return
+        val cutoff = Runnable {
+            observanceCutoff = null
+            if (ObservanceCalendar.isSilenced(applicationContext, System.currentTimeMillis())) {
+                endAlarmsForObservance()
+            }
+        }
+        observanceCutoff = cutoff
+        handler.postDelayed(cutoff, start - now)
+    }
+
+    private fun cancelObservanceCutoff() {
+        observanceCutoff?.let { handler.removeCallbacks(it) }
+        observanceCutoff = null
+    }
+
+    private fun endAlarmsForObservance() {
+        silenceCurrentOutput()
+        val last = alarmStack.lastOrNull()?.alarmId
+        alarmStack.forEach { AlarmScheduler.fileAsMissed(applicationContext, it) }
+        alarmStack.clear()
+        tearDown(last)
     }
 
     /**
@@ -488,6 +524,7 @@ class AlarmService : Service() {
         autoDismissProfile = null
         autoDismissEvent = null
         cancelFullScreenEscalation()
+        cancelObservanceCutoff()
         stopSoundAndVibration()
     }
 
@@ -757,20 +794,15 @@ class AlarmService : Service() {
      * to say so. Posting it from here makes "recorded as missed" and "the user
      * was told" the same event, and any future path that files a missed alarm
      * gets the notification for free.
+     *
+     * Round 28 — the one exception is during Shabbat or Yom Tov, when only a
+     * test alarm can reach here and nothing should make a sound.
      */
     private fun recordMissed(alarmEvent: AlarmEvent) {
-        AppPrefs.saveMissedAlarm(
-            applicationContext,
-            MissedAlarmRecord(
-                alarmId     = alarmEvent.alarmId,
-                eventTitle  = alarmEvent.eventTitle,
-                eventText   = alarmEvent.eventText,
-                eventId     = alarmEvent.eventId,
-                eventTimeMs = alarmEvent.eventTimeMs,
-                missedAtMs  = System.currentTimeMillis()
-            )
-        )
-        showMissedNotification(alarmEvent)
+        AlarmScheduler.fileAsMissed(applicationContext, alarmEvent)
+        if (!ObservanceCalendar.isSilenced(applicationContext, System.currentTimeMillis())) {
+            showMissedNotification(alarmEvent)
+        }
     }
 
     // ------------------------------------------------------------------

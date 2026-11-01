@@ -10,6 +10,7 @@ import com.calendareventsnooze.data.AppPrefs
 import com.calendareventsnooze.model.AlarmEvent
 import com.calendareventsnooze.ui.AlarmActivity
 import com.calendareventsnooze.util.CalendarEvents
+import com.calendareventsnooze.util.ObservanceCalendar
 import com.calendareventsnooze.util.putAlarmEvent
 
 class CalendarNotificationListener : NotificationListenerService() {
@@ -76,6 +77,12 @@ class CalendarNotificationListener : NotificationListenerService() {
         /** Records why this notification was ignored, then stops. */
         fun skip(reason: String) =
             AppPrefs.logInterception(applicationContext, pkg, title, reason)
+
+        // Round 28 — like Silent Hours, the reminder is left as the calendar app
+        // posted it, and it is not recorded as missed.
+        if (ObservanceCalendar.isSilenced(applicationContext, System.currentTimeMillis())) {
+            return skip("skipped: Shabbat & Yom Tov Mode")
+        }
 
         // A group summary carries no reminder of its own — it stands for the
         // ones underneath it, which arrive as their own notifications.
