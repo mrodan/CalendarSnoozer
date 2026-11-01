@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.calendareventsnooze.data.AppPrefs
+import com.calendareventsnooze.model.ObservanceCity
 import com.calendareventsnooze.model.SilentHours
 import com.calendareventsnooze.model.SilentWindow
 import com.calendareventsnooze.ui.components.OnResumeRefresh
@@ -212,6 +213,9 @@ fun SettingsScreen() {
 
         Spacer(Modifier.height(Spacing.lg))
         SilentHoursCard(refreshKey)
+
+        Spacer(Modifier.height(Spacing.lg))
+        ShabbatYomTovCard(refreshKey)
 
         Spacer(Modifier.height(Spacing.lg))
 
@@ -601,6 +605,78 @@ private fun CalendarAppRow(
         }
         Spacer(Modifier.size(Spacing.sm))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * Round 28 — silences the app during Shabbat and Yom Tov, on the schedule of one
+ * city. The switches behave as a single choice: turning one on replaces the
+ * previous city, and turning the selected one off leaves the mode off.
+ */
+@Composable
+private fun ShabbatYomTovCard(refreshKey: Int) {
+    val context = LocalContext.current
+    var city by remember(refreshKey) { mutableStateOf(AppPrefs.getObservanceCity(context)) }
+    var expanded by remember { mutableStateOf(false) }
+
+    fun select(next: ObservanceCity?) {
+        city = next
+        AppPrefs.setObservanceCity(context, next)
+    }
+
+    SectionCard("Shabbat & Yom Tov Mode") {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Aaron Yaakov ben Mordecai Mode",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    city?.let { "ON ${it.label}" } ?: "OFF",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        AnimatedVisibility(visible = expanded) {
+            Column {
+                Spacer(Modifier.height(Spacing.sm))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(Spacing.sm))
+                ObservanceCity.entries.forEach { option ->
+                    val selected = option == city
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { select(if (selected) null else option) }
+                            .padding(vertical = Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            option.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(
+                            checked = selected,
+                            onCheckedChange = { on -> select(if (on) option else null) }
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
