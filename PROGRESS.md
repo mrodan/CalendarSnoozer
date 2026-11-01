@@ -326,6 +326,12 @@ Prompted by wanting to share the APK with other people, on phones that are not P
 - `ObservanceCalendarTest` is the first unit test in the project, added with JUnit, and runs against the real assets.
 - versionCode 22 / versionName 3.0.
 
+## Round 29 — the two-minute rule is gone
+- [x] **Removed the staleness rule from round 27**, at the user's request. Its justification did not survive round 28, and it could silently drop a reminder that arrived late.
+- [x] **`interception_log` now records each notification's age on arrival**, so a late delivery is visible if one turns out to be behind a ghost alarm. The rule's own log entry was the only place that information appeared.
+- The cause of the ghost alarms is still unknown; the plan is to read the log after the next one.
+- versionCode 23 / versionName 3.1.
+
 **Correction (round 9):** an "orphaned notification after dismiss" was reported mid-session and was a **measurement error** — `dumpsys notification` includes an archive of past notifications and the grep matched that. `cmd notification list` showed no live notification. `FLAG_NO_CLEAR` was briefly removed chasing this and has been restored. See the CLAUDE.md testing notes.
 
 ## Round 9 — forward compatibility + distribution

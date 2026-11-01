@@ -15,20 +15,6 @@ import com.calendareventsnooze.util.putAlarmEvent
 
 class CalendarNotificationListener : NotificationListenerService() {
 
-    private companion object {
-        /**
-         * Round 27 — how recently a notification must have been posted to count
-         * as a fresh reminder.
-         *
-         * This was added on the theory that binding replays what is already in
-         * the shade. Round 28 measured that on API 34 and it does **not**: 14
-         * live notifications produced nothing through a rebind or an app
-         * update. It stays as a guard against a very late delivery, but it is
-         * not the explanation for the ghost alarms.
-         */
-        const val FRESH_NOTIFICATION_MS = 2L * 60 * 1000
-    }
-
     /**
      * Round 20 — Android unbinds notification listeners under memory pressure,
      * and OEMs that kill background processes aggressively (Xiaomi, Oppo, vivo,
@@ -70,9 +56,13 @@ class CalendarNotificationListener : NotificationListenerService() {
         val title = extras.text("android.title") ?: extras.text("android.subject") ?: ""
         val text = extras.text("android.text") ?: extras.text("android.bigText") ?: ""
 
+        // Round 29 — how old a notification was on arrival is logged rather than
+        // acted on, so a late delivery will show up if one is behind a ghost.
+        val postedAgo = "posted ${(System.currentTimeMillis() - sbn.postTime) / 1000}s ago"
+
         /** Records why this notification was ignored, then stops. */
         fun skip(reason: String) =
-            AppPrefs.logInterception(applicationContext, pkg, title, reason)
+            AppPrefs.logInterception(applicationContext, pkg, title, "$reason, $postedAgo")
 
         // Round 28 — like Silent Hours, the reminder is left as the calendar app
         // posted it, and it is not recorded as missed.
@@ -89,11 +79,6 @@ class CalendarNotificationListener : NotificationListenerService() {
         // them for "event in progress" and for its own sync work.
         if (notification.flags and Notification.FLAG_ONGOING_EVENT != 0) {
             return skip("skipped: ongoing")
-        }
-        // Replayed on bind — see FRESH_NOTIFICATION_MS.
-        val age = System.currentTimeMillis() - sbn.postTime
-        if (sbn.postTime > 0L && age > FRESH_NOTIFICATION_MS) {
-            return skip("skipped: stale (${age / 1000}s old)")
         }
         // Nothing to put on the takeover. An alarm with no title and no text
         // cannot tell the user what it is for, which is how a ghost looks.
@@ -129,7 +114,7 @@ class CalendarNotificationListener : NotificationListenerService() {
         // Recorded before anything can fail, so the diagnostic line on Home
         // still answers "did a reminder reach us?" even if the alarm misfires.
         AppPrefs.recordInterception(applicationContext, pkg)
-        AppPrefs.logInterception(applicationContext, pkg, title, "alarm")
+        AppPrefs.logInterception(applicationContext, pkg, title, "alarm, $postedAgo")
 
         val alarmId = "alarm_${System.currentTimeMillis()}"
         val alarmEvent = AlarmEvent(alarmId, title, text, eventId, eventTimeMs)

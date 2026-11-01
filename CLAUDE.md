@@ -83,10 +83,9 @@ AppPrefs (SharedPreferences + Gson) — all persistence
 `CalendarNotificationListener` is not "every notification from a watched
 package" any more. In order: the package must be watched, the master switch on,
 and the time outside Silent Hours; then outside Shabbat & Yom Tov Mode, and the
-notification must not be a group summary or an ongoing one, must have been
-posted within the last two minutes (trap 26), must have a title or text, and
-must not repeat one already alarmed. Only then is the account filter consulted.
-Every rejection is written to a
+notification must not be a group summary or an ongoing one, must have a title or
+text, and must not repeat one already alarmed. Only then is the account filter
+consulted. Every decision, with how long after posting it arrived, is written to a
 rolling log in preferences — no UI, read it with `adb shell run-as
 com.calendareventsnooze cat .../ces_prefs.xml` when a ghost alarm is reported.
 
@@ -375,11 +374,12 @@ notifications already on screen, without measuring it. Round 28 measured it on
 API 34: with 14 live notifications from a watched package, neither a rebind
 (`disallow_listener` / `allow_listener`) nor `adb install -r` delivered anything.
 Android 17 is untested, and **the cause of the ghost alarms is still unknown**.
-The listener still ignores anything whose `postTime` is more than two minutes
-ago, along with group summaries, ongoing notifications, contentless ones and
-in-place updates of a notification already alarmed. Those guards are reasonable,
-but none has been shown to be what stopped a ghost. Read `interception_log` after
-the next report, before theorising.
+Round 29 removed the two-minute staleness rule built on that theory, at the
+user's request, because it could silently drop a reminder that arrived late. The
+listener still ignores group summaries, ongoing notifications, contentless ones
+and in-place updates of a notification already alarmed; none of those has been
+shown to stop a ghost. `interception_log` records each notification's age on
+arrival instead. Read it after the next report, before theorising.
 
 **28. `adb root` breaks `cmd notification post`, and seeding prefs races the app.**
 Simulating a reminder means watching `com.android.shell`, so testing listener
@@ -392,9 +392,8 @@ file written beneath it: `disallow_listener`, `force-stop`, copy the file,
 until the same setup has been seen to alarm.
 
 To test anything date-bound, use the emulator: `adb root`, turn `auto_time` off,
-then `adb shell date MMDDhhmmYYYY.ss`. Only move the clock forward, because
-notifications dated in the future defeat the `postTime` check. Clock jumps often
-raise "System UI isn't responding", so check for that dialog before tapping.
+then `adb shell date MMDDhhmmYYYY.ss`. Clock jumps often raise "System UI isn't
+responding", so check for that dialog before tapping.
 
 **27. Channel importance draws the heads-up banner, not the full-screen intent.**
 A notification announcing the alarm appeared *over* the takeover. Dropping its
